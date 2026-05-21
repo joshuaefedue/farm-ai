@@ -50,8 +50,11 @@ export default function OnboardingPage() {
     setLoading(true);
     setError(null);
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError("Not signed in"); setLoading(false); return; }
+    // getSession() reads from local storage — works reliably right after sign-in.
+    // getUser() makes a network round-trip to validate the JWT which can transiently fail.
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
+    if (!user) { setError("Session not found — please sign in again."); setLoading(false); return; }
 
     // 1. Create organization
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

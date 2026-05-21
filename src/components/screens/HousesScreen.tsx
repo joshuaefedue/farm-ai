@@ -32,6 +32,7 @@ function AddHouseModal({
 
   function handleSubmit() {
     if (!form.name.trim()) { setError("House name is required"); return; }
+    if (!orgId) { setError("Farm not loaded — please refresh the page"); return; }
     if (!SUPABASE_CONFIGURED) { onSuccess(); onClose(); return; }
     startTransition(async () => {
       const res = await createHouse({
@@ -145,7 +146,7 @@ export default function HousesScreen() {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn accent" onClick={() => setShowAdd(true)}>
+          <button className="btn accent" onClick={() => setShowAdd(true)} disabled={!org}>
             <Icons.Plus size={14} /> Add house
           </button>
         </div>
