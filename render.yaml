@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: acre-farm-os
+    runtime: node
+    region: frankfurt          # change to 'oregon' or 'singapore' as needed
+    plan: starter
+
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    healthCheckPath: /
+
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false              # set manually in Render dashboard
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: acre-farm-os
+          property: host
+
+    autoDeploy: true             # auto-deploy on git push

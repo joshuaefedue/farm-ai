@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "farm-ai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "claude-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3001"],
+      "port": 3001,
+      "cwd": "C:\\Users\\Jefedue\\Desktop\\New Projects\\claude"
+    }
+  ]
+}
