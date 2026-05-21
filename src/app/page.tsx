@@ -16,5 +16,18 @@ export default async function Home() {
     redirect("/landing");
   }
 
+  // Check if user belongs to at least one org — if not, send to onboarding
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (!membership) {
+    redirect("/onboarding");
+  }
+
   return <AppShell />;
 }

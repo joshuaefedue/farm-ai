@@ -275,6 +275,10 @@ export interface Database {
         Args: Record<string, never>;
         Returns: boolean;
       };
+      seed_demo_org: {
+        Args: { p_org_id: string };
+        Returns: undefined;
+      };
     };
     Enums: Record<string, never>;
   };

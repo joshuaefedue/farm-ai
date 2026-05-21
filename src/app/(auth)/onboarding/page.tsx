@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Icons } from "@/components/icons";
+import { completeOnboarding } from "@/app/actions/onboarding";
 
 const STATES = [
   "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
@@ -17,8 +17,7 @@ const STATES = [
 type Step = 1 | 2 | 3;
 
 export default function OnboardingPage() {
-  const router   = useRouter();
-  const supabase = createClient();
+  const router = useRouter();
 
   const [step, setStep]         = useState<Step>(1);
   const [loading, setLoading]   = useState(false);
@@ -50,55 +49,32 @@ export default function OnboardingPage() {
     setLoading(true);
     setError(null);
 
-    // getSession() reads from local storage — works reliably right after sign-in.
-    // getUser() makes a network round-trip to validate the JWT which can transiently fail.
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user ?? null;
-    if (!user) { setError("Session not found — please sign in again."); setLoading(false); return; }
-
-    // 1. Create organization
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sbAny = supabase as any;
-    const { data: org, error: orgErr } = await sbAny
-      .from("organizations")
-      .insert({
-        name: form.farmName.trim(),
+    try {
+      const res = await completeOnboarding({
+        farmName: form.farmName.trim(),
         slug: slugify(form.farmName.trim()) + "-" + Math.random().toString(36).slice(2, 6),
-        state: form.state,
-        lga: form.lga || null,
-        address: form.address || null,
-        owner_name: user.user_metadata?.full_name ?? null,
-        owner_phone: form.ownerPhone || null,
-        wa_number: form.waNumber || null,
-        bird_capacity: form.birdCapacity ? parseInt(form.birdCapacity) : null,
-        reg_number: form.regNumber || null,
-        plan: "free",
-      })
-      .select()
-      .single();
+        state: form.state || undefined,
+        lga: form.lga || undefined,
+        address: form.address || undefined,
+        ownerPhone: form.ownerPhone || undefined,
+        waNumber: form.waNumber || undefined,
+        birdCapacity: form.birdCapacity ? parseInt(form.birdCapacity) : undefined,
+        regNumber: form.regNumber || undefined,
+        seedDemo,
+      });
 
-    if (orgErr || !org) {
-      setError(orgErr?.message ?? "Failed to create farm");
+      if (!res.success) {
+        setError(res.error ?? "Failed to create farm");
+        setLoading(false);
+        return;
+      }
+
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
       setLoading(false);
-      return;
     }
-
-    // 2. Add creator as owner
-    await sbAny.from("organization_members").insert({
-      org_id: org.id,
-      user_id: user.id,
-      role: "owner",
-      active: true,
-    });
-
-    // 3. Optionally seed demo data
-    if (seedDemo) {
-      await sbAny.rpc("seed_demo_org", { p_org_id: org.id });
-    }
-
-    setLoading(false);
-    router.push("/");
-    router.refresh();
   }
 
   const STEPS = ["Your farm", "Location", "Review"];
