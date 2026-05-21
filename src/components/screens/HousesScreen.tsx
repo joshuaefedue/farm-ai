@@ -157,7 +157,7 @@ export default function HousesScreen() {
           <Icons.House size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
           <div style={{ fontWeight: 500, marginBottom: 4 }}>No houses yet</div>
           <div style={{ fontSize: 13 }}>Add your first poultry house to start assigning batches</div>
-          <button className="btn accent sm" style={{ marginTop: 12 }} onClick={() => setShowAdd(true)}>
+          <button className="btn accent sm" style={{ marginTop: 12 }} onClick={() => setShowAdd(true)} disabled={!org}>
             <Icons.Plus size={12} /> Add first house
           </button>
         </div>

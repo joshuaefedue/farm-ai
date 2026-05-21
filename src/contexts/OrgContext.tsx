@@ -73,13 +73,18 @@ function OrgProviderInner({ children }: { children: React.ReactNode }) {
   // ── Load user + profile ───────────────────────────────────────────────────
   useEffect(() => {
     const loadUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user) {
+      // getSession() reads from localStorage synchronously — never makes a
+      // network call and is always reliable right after sign-in.
+      // getUser() does a server round-trip to re-validate the JWT which can
+      // transiently return null immediately after a redirect.
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
         const { data: p } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", user.id)
+          .eq("id", u.id)
           .single();
         setProfile(p);
       }
