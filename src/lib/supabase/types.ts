@@ -20,11 +20,54 @@ export interface Database {
           bird_capacity: number | null;
           plan: string;
           logo_url: string | null;
+          suspended: boolean;
+          suspended_at: string | null;
+          suspended_note: string | null;
+          plan_expires_at: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["organizations"]["Row"], "id" | "created_at" | "updated_at">;
-        Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
+        Insert: {
+          name: string;
+          slug: string;
+          reg_number?: string | null;
+          state?: string | null;
+          lga?: string | null;
+          address?: string | null;
+          owner_name?: string | null;
+          owner_phone?: string | null;
+          wa_number?: string | null;
+          established_year?: number | null;
+          size_ha?: number | null;
+          bird_capacity?: number | null;
+          plan?: string;
+          logo_url?: string | null;
+          suspended?: boolean;
+          suspended_at?: string | null;
+          suspended_note?: string | null;
+          plan_expires_at?: string | null;
+        };
+        Update: {
+          name?: string;
+          slug?: string;
+          reg_number?: string | null;
+          state?: string | null;
+          lga?: string | null;
+          address?: string | null;
+          owner_name?: string | null;
+          owner_phone?: string | null;
+          wa_number?: string | null;
+          established_year?: number | null;
+          size_ha?: number | null;
+          bird_capacity?: number | null;
+          plan?: string;
+          logo_url?: string | null;
+          suspended?: boolean;
+          suspended_at?: string | null;
+          suspended_note?: string | null;
+          plan_expires_at?: string | null;
+        };
+        Relationships: [];
       };
       organization_members: {
         Row: {
@@ -38,6 +81,7 @@ export interface Database {
         };
         Insert: Omit<Database["public"]["Tables"]["organization_members"]["Row"], "id" | "joined_at">;
         Update: Partial<Database["public"]["Tables"]["organization_members"]["Insert"]>;
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -45,10 +89,23 @@ export interface Database {
           full_name: string | null;
           avatar_url: string | null;
           phone: string | null;
+          is_admin: boolean;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["profiles"]["Row"], "created_at">;
-        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+        Insert: {
+          id: string;
+          full_name?: string | null;
+          avatar_url?: string | null;
+          phone?: string | null;
+          is_admin?: boolean;
+        };
+        Update: {
+          full_name?: string | null;
+          avatar_url?: string | null;
+          phone?: string | null;
+          is_admin?: boolean;
+        };
+        Relationships: [];
       };
       houses: {
         Row: {
@@ -61,6 +118,7 @@ export interface Database {
         };
         Insert: Omit<Database["public"]["Tables"]["houses"]["Row"], "id" | "created_at">;
         Update: Partial<Database["public"]["Tables"]["houses"]["Insert"]>;
+        Relationships: [];
       };
       batches: {
         Row: {
@@ -86,6 +144,7 @@ export interface Database {
         };
         Insert: Omit<Database["public"]["Tables"]["batches"]["Row"], "created_at" | "updated_at">;
         Update: Partial<Database["public"]["Tables"]["batches"]["Insert"]>;
+        Relationships: [];
       };
       orders: {
         Row: {
@@ -101,11 +160,13 @@ export interface Database {
           payment_method: string | null;
           phone: string | null;
           is_coop: boolean;
+          notes: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["orders"]["Row"], "created_at" | "updated_at">;
         Update: Partial<Database["public"]["Tables"]["orders"]["Insert"]>;
+        Relationships: [];
       };
       vaccinations: {
         Row: {
@@ -120,10 +181,12 @@ export interface Database {
           birds_count: number | null;
           lot_number: string | null;
           notes: string | null;
+          administered_by: string | null;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["vaccinations"]["Row"], "id" | "created_at">;
         Update: Partial<Database["public"]["Tables"]["vaccinations"]["Insert"]>;
+        Relationships: [];
       };
       batch_logs: {
         Row: {
@@ -139,6 +202,7 @@ export interface Database {
         };
         Insert: Omit<Database["public"]["Tables"]["batch_logs"]["Row"], "id" | "created_at">;
         Update: Partial<Database["public"]["Tables"]["batch_logs"]["Insert"]>;
+        Relationships: [];
       };
       alerts: {
         Row: {
@@ -153,14 +217,21 @@ export interface Database {
         };
         Insert: Omit<Database["public"]["Tables"]["alerts"]["Row"], "id" | "created_at">;
         Update: Partial<Database["public"]["Tables"]["alerts"]["Insert"]>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
     Functions: {
       user_org_ids: {
         Args: Record<string, never>;
         Returns: string[];
       };
+      is_platform_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
     };
+    Enums: Record<string, never>;
   };
 }
 
