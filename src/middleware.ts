@@ -9,7 +9,8 @@ export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   // ── 1. Always let public routes through — check BEFORE touching Supabase ──
-  const isPublic = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+  // "/" is also public — page.tsx handles the auth-based redirect itself
+  const isPublic = pathname === "/" || PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   if (isPublic) return supabaseResponse;
 
   // ── 2. Bypass auth if Supabase isn't configured ────────────────────────────
