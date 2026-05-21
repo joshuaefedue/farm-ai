@@ -32,8 +32,8 @@ function AddHouseModal({
 
   function handleSubmit() {
     if (!form.name.trim()) { setError("House name is required"); return; }
-    if (!orgId) { setError("Farm not loaded — please refresh the page"); return; }
     if (!SUPABASE_CONFIGURED) { onSuccess(); onClose(); return; }
+    if (!orgId) { setError("Farm not loaded — please refresh the page"); return; }
     startTransition(async () => {
       const res = await createHouse({
         org_id: orgId,
@@ -146,7 +146,7 @@ export default function HousesScreen() {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn accent" onClick={() => setShowAdd(true)} disabled={!org}>
+          <button className="btn accent" onClick={() => setShowAdd(true)} disabled={SUPABASE_CONFIGURED && !org}>
             <Icons.Plus size={14} /> Add house
           </button>
         </div>
@@ -157,7 +157,7 @@ export default function HousesScreen() {
           <Icons.House size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
           <div style={{ fontWeight: 500, marginBottom: 4 }}>No houses yet</div>
           <div style={{ fontSize: 13 }}>Add your first poultry house to start assigning batches</div>
-          <button className="btn accent sm" style={{ marginTop: 12 }} onClick={() => setShowAdd(true)} disabled={!org}>
+          <button className="btn accent sm" style={{ marginTop: 12 }} onClick={() => setShowAdd(true)} disabled={SUPABASE_CONFIGURED && !org}>
             <Icons.Plus size={12} /> Add first house
           </button>
         </div>
