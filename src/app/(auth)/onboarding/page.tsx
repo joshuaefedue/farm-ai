@@ -6,6 +6,7 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { completeOnboarding } from "@/app/actions/onboarding";
+import { createClient } from "@/lib/supabase/client";
 
 const STATES = [
   "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
@@ -50,7 +51,18 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
+      // Get user from browser session (localStorage — always works after sign-in)
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        setError("Session not found — please sign in again.");
+        setLoading(false);
+        return;
+      }
+
       const res = await completeOnboarding({
+        userId: session.user.id,
+        ownerName: session.user.user_metadata?.full_name ?? undefined,
         farmName: form.farmName.trim(),
         slug: slugify(form.farmName.trim()) + "-" + Math.random().toString(36).slice(2, 6),
         state: form.state || undefined,

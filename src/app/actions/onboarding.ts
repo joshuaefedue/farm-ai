@@ -1,16 +1,17 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Server action for onboarding — creates org + first member.
  *
  * Uses the admin (service-role) client to bypass RLS, since the user
- * can't be a member of an org that doesn't exist yet.  The auth user
- * is read from the regular server client (cookie-based session).
+ * can't be a member of an org that doesn't exist yet.
+ * The userId is passed from the client (which reads it from getSession()).
  */
 export async function completeOnboarding(data: {
+  userId: string;
+  ownerName?: string;
   farmName: string;
   slug: string;
   state?: string;
@@ -22,17 +23,20 @@ export async function completeOnboarding(data: {
   regNumber?: string;
   seedDemo?: boolean;
 }) {
-  // 1. Get the authenticated user from cookies
-  const supabase = await createClient();
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) {
-    return { success: false, error: "Not authenticated — please sign in again." };
+  if (!data.userId) {
+    return { success: false, error: "Missing user ID — please sign in again." };
   }
 
-  // 2. Admin client bypasses RLS
+  // Admin client bypasses RLS
   const admin = createAdminClient();
 
-  // 3. Create organization
+  // Verify the user actually exists in auth.users
+  const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(data.userId);
+  if (authErr || !authUser?.user) {
+    return { success: false, error: "Invalid user — please sign in again." };
+  }
+
+  // Create organization
   const { data: org, error: orgErr } = await admin
     .from("organizations")
     .insert({
@@ -41,7 +45,7 @@ export async function completeOnboarding(data: {
       state: data.state ?? null,
       lga: data.lga ?? null,
       address: data.address ?? null,
-      owner_name: user.user_metadata?.full_name ?? null,
+      owner_name: data.ownerName ?? null,
       owner_phone: data.ownerPhone ?? null,
       wa_number: data.waNumber ?? null,
       bird_capacity: data.birdCapacity ?? null,
@@ -55,12 +59,12 @@ export async function completeOnboarding(data: {
     return { success: false, error: orgErr?.message ?? "Failed to create farm" };
   }
 
-  // 4. Add creator as owner
+  // Add creator as owner
   const { error: memberErr } = await admin
     .from("organization_members")
     .insert({
       org_id: org.id,
-      user_id: user.id,
+      user_id: data.userId,
       role: "owner",
       active: true,
       invited_by: null,
