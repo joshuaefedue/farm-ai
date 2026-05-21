@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Acre Farm OS — Initial Schema
+-- Acre Farm OS — Initial Schema (idempotent — safe to re-run)
 -- Multi-tenant poultry ERP. Every table is scoped to org_id with RLS.
 -- ═══════════════════════════════════════════════════════════════════════════
 
@@ -13,7 +13,7 @@ RETURNS TEXT AS $$
 $$ LANGUAGE SQL IMMUTABLE;
 
 -- ── Organizations (farms) ─────────────────────────────────────────────────────
-CREATE TABLE organizations (
+CREATE TABLE IF NOT EXISTS organizations (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name             TEXT NOT NULL,
   slug             TEXT NOT NULL UNIQUE,
@@ -34,7 +34,7 @@ CREATE TABLE organizations (
 );
 
 -- ── User profiles (mirrors auth.users) ───────────────────────────────────────
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name  TEXT,
   avatar_url TEXT,
@@ -51,17 +51,19 @@ BEGIN
     NEW.id,
     NEW.raw_user_meta_data ->> 'full_name',
     NEW.raw_user_meta_data ->> 'avatar_url'
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
 -- ── Organization members ──────────────────────────────────────────────────────
-CREATE TABLE organization_members (
+CREATE TABLE IF NOT EXISTS organization_members (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -81,7 +83,7 @@ RETURNS SETOF UUID AS $$
 $$ LANGUAGE SQL SECURITY DEFINER STABLE;
 
 -- ── Houses ────────────────────────────────────────────────────────────────────
-CREATE TABLE houses (
+CREATE TABLE IF NOT EXISTS houses (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
@@ -91,15 +93,15 @@ CREATE TABLE houses (
 );
 
 -- ── Batches ───────────────────────────────────────────────────────────────────
-CREATE TABLE batches (
-  id             TEXT PRIMARY KEY,          -- e.g. PB-2026-014
+CREATE TABLE IF NOT EXISTS batches (
+  id             TEXT PRIMARY KEY,
   org_id         UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name           TEXT,
   breed          TEXT,
   type           TEXT NOT NULL CHECK (type IN ('layer','broiler','dual')),
   arrival_date   DATE,
   house_id       UUID REFERENCES houses(id),
-  house_name     TEXT,                      -- denormalised for speed
+  house_name     TEXT,
   start_count    INT,
   current_count  INT,
   mortality_pct  NUMERIC(5,2),
@@ -115,7 +117,7 @@ CREATE TABLE batches (
 );
 
 -- ── Batch daily logs ──────────────────────────────────────────────────────────
-CREATE TABLE batch_logs (
+CREATE TABLE IF NOT EXISTS batch_logs (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   batch_id   TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
@@ -129,7 +131,7 @@ CREATE TABLE batch_logs (
 );
 
 -- ── Vaccinations ──────────────────────────────────────────────────────────────
-CREATE TABLE vaccinations (
+CREATE TABLE IF NOT EXISTS vaccinations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id             UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   batch_id           TEXT REFERENCES batches(id),
@@ -146,8 +148,8 @@ CREATE TABLE vaccinations (
 );
 
 -- ── Orders ────────────────────────────────────────────────────────────────────
-CREATE TABLE orders (
-  id              TEXT PRIMARY KEY,         -- e.g. ORD-2061
+CREATE TABLE IF NOT EXISTS orders (
+  id              TEXT PRIMARY KEY,
   org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   order_date      DATE NOT NULL DEFAULT CURRENT_DATE,
   customer        TEXT NOT NULL,
@@ -167,7 +169,7 @@ CREATE TABLE orders (
 );
 
 -- ── Inventory items ───────────────────────────────────────────────────────────
-CREATE TABLE inventory_items (
+CREATE TABLE IF NOT EXISTS inventory_items (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
@@ -184,7 +186,7 @@ CREATE TABLE inventory_items (
 );
 
 -- ── Alerts ────────────────────────────────────────────────────────────────────
-CREATE TABLE alerts (
+CREATE TABLE IF NOT EXISTS alerts (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   level      TEXT NOT NULL CHECK (level IN ('danger','warning','info','success')),
@@ -196,7 +198,7 @@ CREATE TABLE alerts (
 );
 
 -- ── Notification settings (per org) ──────────────────────────────────────────
-CREATE TABLE notification_settings (
+CREATE TABLE IF NOT EXISTS notification_settings (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE UNIQUE,
   settings   JSONB NOT NULL DEFAULT '{}',
@@ -212,12 +214,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS organizations_updated_at ON organizations;
 CREATE TRIGGER organizations_updated_at BEFORE UPDATE ON organizations
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS batches_updated_at ON batches;
 CREATE TRIGGER batches_updated_at BEFORE UPDATE ON batches
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS orders_updated_at ON orders;
 CREATE TRIGGER orders_updated_at BEFORE UPDATE ON orders
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS inventory_updated_at ON inventory_items;
 CREATE TRIGGER inventory_updated_at BEFORE UPDATE ON inventory_items
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -237,12 +246,16 @@ ALTER TABLE alerts               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_settings ENABLE ROW LEVEL SECURITY;
 
 -- ── Profiles ─────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own profile"   ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT USING (id = auth.uid());
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE USING (id = auth.uid());
 
 -- ── Organizations ─────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can view their orgs" ON organizations;
+DROP POLICY IF EXISTS "Owners can update org"       ON organizations;
 CREATE POLICY "Members can view their orgs"
   ON organizations FOR SELECT
   USING (id IN (SELECT user_org_ids()));
@@ -254,6 +267,9 @@ CREATE POLICY "Owners can update org"
   ));
 
 -- ── Organization members ──────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can view their org's members"  ON organization_members;
+DROP POLICY IF EXISTS "Owners/managers can insert members"    ON organization_members;
+DROP POLICY IF EXISTS "Owners/managers can update members"    ON organization_members;
 CREATE POLICY "Members can view their org's members"
   ON organization_members FOR SELECT
   USING (org_id IN (SELECT user_org_ids()));
@@ -270,8 +286,10 @@ CREATE POLICY "Owners/managers can update members"
     WHERE user_id = auth.uid() AND role IN ('owner','manager') AND active = TRUE
   ));
 
--- ── Reusable: member can read ─────────────────────────────────────────────────
--- Used for all data tables
+-- ── Houses ────────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select houses"  ON houses;
+DROP POLICY IF EXISTS "Managers can insert houses" ON houses;
+DROP POLICY IF EXISTS "Managers can update houses" ON houses;
 CREATE POLICY "Members can select houses"
   ON houses FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Managers can insert houses"
@@ -287,6 +305,10 @@ CREATE POLICY "Managers can update houses"
     WHERE user_id = auth.uid() AND role IN ('owner','manager') AND active = TRUE
   ));
 
+-- ── Batches ───────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select batches"  ON batches;
+DROP POLICY IF EXISTS "Managers can insert batches" ON batches;
+DROP POLICY IF EXISTS "Managers can update batches" ON batches;
 CREATE POLICY "Members can select batches"
   ON batches FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Managers can insert batches"
@@ -302,12 +324,19 @@ CREATE POLICY "Managers can update batches"
     WHERE user_id = auth.uid() AND role IN ('owner','manager','vet') AND active = TRUE
   ));
 
+-- ── Batch logs ────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select batch_logs" ON batch_logs;
+DROP POLICY IF EXISTS "Staff can insert batch_logs"   ON batch_logs;
 CREATE POLICY "Members can select batch_logs"
   ON batch_logs FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Staff can insert batch_logs"
   ON batch_logs FOR INSERT
   WITH CHECK (org_id IN (SELECT user_org_ids()));
 
+-- ── Vaccinations ──────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select vaccinations"     ON vaccinations;
+DROP POLICY IF EXISTS "Vet/manager can insert vaccinations" ON vaccinations;
+DROP POLICY IF EXISTS "Vet/manager can update vaccinations" ON vaccinations;
 CREATE POLICY "Members can select vaccinations"
   ON vaccinations FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Vet/manager can insert vaccinations"
@@ -323,6 +352,10 @@ CREATE POLICY "Vet/manager can update vaccinations"
     WHERE user_id = auth.uid() AND role IN ('owner','manager','vet') AND active = TRUE
   ));
 
+-- ── Orders ────────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select orders" ON orders;
+DROP POLICY IF EXISTS "Sales can insert orders"   ON orders;
+DROP POLICY IF EXISTS "Sales can update orders"   ON orders;
 CREATE POLICY "Members can select orders"
   ON orders FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Sales can insert orders"
@@ -338,6 +371,10 @@ CREATE POLICY "Sales can update orders"
     WHERE user_id = auth.uid() AND role IN ('owner','manager','sales','logistics') AND active = TRUE
   ));
 
+-- ── Inventory ─────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select inventory"  ON inventory_items;
+DROP POLICY IF EXISTS "Managers can insert inventory" ON inventory_items;
+DROP POLICY IF EXISTS "Managers can update inventory" ON inventory_items;
 CREATE POLICY "Members can select inventory"
   ON inventory_items FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Managers can insert inventory"
@@ -353,6 +390,10 @@ CREATE POLICY "Managers can update inventory"
     WHERE user_id = auth.uid() AND role IN ('owner','manager') AND active = TRUE
   ));
 
+-- ── Alerts ────────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can select alerts"     ON alerts;
+DROP POLICY IF EXISTS "System can insert alerts"      ON alerts;
+DROP POLICY IF EXISTS "Members can mark alerts read"  ON alerts;
 CREATE POLICY "Members can select alerts"
   ON alerts FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "System can insert alerts"
@@ -361,6 +402,9 @@ CREATE POLICY "System can insert alerts"
 CREATE POLICY "Members can mark alerts read"
   ON alerts FOR UPDATE USING (org_id IN (SELECT user_org_ids()));
 
+-- ── Notification settings ─────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Members can view notification settings"  ON notification_settings;
+DROP POLICY IF EXISTS "Owners can update notification settings" ON notification_settings;
 CREATE POLICY "Members can view notification settings"
   ON notification_settings FOR SELECT USING (org_id IN (SELECT user_org_ids()));
 CREATE POLICY "Owners can update notification settings"
@@ -373,12 +417,12 @@ CREATE POLICY "Owners can update notification settings"
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Indexes
 -- ═══════════════════════════════════════════════════════════════════════════
-CREATE INDEX idx_org_members_user   ON organization_members(user_id);
-CREATE INDEX idx_org_members_org    ON organization_members(org_id);
-CREATE INDEX idx_batches_org        ON batches(org_id);
-CREATE INDEX idx_batches_status     ON batches(org_id, status);
-CREATE INDEX idx_batch_logs_batch   ON batch_logs(batch_id, log_date);
-CREATE INDEX idx_vaccinations_org   ON vaccinations(org_id, scheduled_date);
-CREATE INDEX idx_orders_org         ON orders(org_id, order_date DESC);
-CREATE INDEX idx_alerts_org         ON alerts(org_id, created_at DESC);
-CREATE INDEX idx_inventory_org      ON inventory_items(org_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_user   ON organization_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_org    ON organization_members(org_id);
+CREATE INDEX IF NOT EXISTS idx_batches_org        ON batches(org_id);
+CREATE INDEX IF NOT EXISTS idx_batches_status     ON batches(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_batch_logs_batch   ON batch_logs(batch_id, log_date);
+CREATE INDEX IF NOT EXISTS idx_vaccinations_org   ON vaccinations(org_id, scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_orders_org         ON orders(org_id, order_date DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_org         ON alerts(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inventory_org      ON inventory_items(org_id);

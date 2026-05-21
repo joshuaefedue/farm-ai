@@ -1,7 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Acre Farm OS — Admin schema additions
--- Adds: is_admin flag on profiles, suspended on organizations,
---       admin-bypass RLS policies
+-- Acre Farm OS — Admin schema additions (idempotent — safe to re-run)
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ── Add is_admin to profiles ─────────────────────────────────────────────────
@@ -10,9 +8,9 @@ ALTER TABLE profiles
 
 -- ── Add suspended + plan_expires_at to organizations ─────────────────────────
 ALTER TABLE organizations
-  ADD COLUMN IF NOT EXISTS suspended      BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS suspended_at   TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS suspended_note TEXT,
+  ADD COLUMN IF NOT EXISTS suspended       BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS suspended_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS suspended_note  TEXT,
   ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
 
 -- ── Helper: is current user a platform admin? ─────────────────────────────────
@@ -25,46 +23,45 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE SQL SECURITY DEFINER STABLE;
 
 -- ── Admin RLS policies — profiles ────────────────────────────────────────────
+DROP POLICY IF EXISTS "Admins can read all profiles"   ON profiles;
+DROP POLICY IF EXISTS "Admins can update all profiles" ON profiles;
 CREATE POLICY "Admins can read all profiles"
-  ON profiles FOR SELECT
-  USING (is_platform_admin());
-
+  ON profiles FOR SELECT USING (is_platform_admin());
 CREATE POLICY "Admins can update all profiles"
-  ON profiles FOR UPDATE
-  USING (is_platform_admin());
+  ON profiles FOR UPDATE USING (is_platform_admin());
 
 -- ── Admin RLS policies — organizations ───────────────────────────────────────
+DROP POLICY IF EXISTS "Admins can read all orgs"   ON organizations;
+DROP POLICY IF EXISTS "Admins can update all orgs" ON organizations;
+DROP POLICY IF EXISTS "Admins can delete orgs"     ON organizations;
 CREATE POLICY "Admins can read all orgs"
-  ON organizations FOR SELECT
-  USING (is_platform_admin());
-
+  ON organizations FOR SELECT USING (is_platform_admin());
 CREATE POLICY "Admins can update all orgs"
-  ON organizations FOR UPDATE
-  USING (is_platform_admin());
-
+  ON organizations FOR UPDATE USING (is_platform_admin());
 CREATE POLICY "Admins can delete orgs"
-  ON organizations FOR DELETE
-  USING (is_platform_admin());
+  ON organizations FOR DELETE USING (is_platform_admin());
 
 -- ── Admin RLS policies — all data tables ─────────────────────────────────────
+DROP POLICY IF EXISTS "Admins can read all members"      ON organization_members;
+DROP POLICY IF EXISTS "Admins can read all batches"      ON batches;
+DROP POLICY IF EXISTS "Admins can read all orders"       ON orders;
+DROP POLICY IF EXISTS "Admins can read all alerts"       ON alerts;
+DROP POLICY IF EXISTS "Admins can read all vaccinations" ON vaccinations;
+DROP POLICY IF EXISTS "Admins can read all houses"       ON houses;
+DROP POLICY IF EXISTS "Admins can read all inventory"    ON inventory_items;
+
 CREATE POLICY "Admins can read all members"
   ON organization_members FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all batches"
   ON batches FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all orders"
   ON orders FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all alerts"
   ON alerts FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all vaccinations"
   ON vaccinations FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all houses"
   ON houses FOR SELECT USING (is_platform_admin());
-
 CREATE POLICY "Admins can read all inventory"
   ON inventory_items FOR SELECT USING (is_platform_admin());
 
@@ -106,7 +103,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- ── Index for admin queries ───────────────────────────────────────────────────
+-- ── Indexes ───────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_profiles_is_admin ON profiles(is_admin) WHERE is_admin = TRUE;
 CREATE INDEX IF NOT EXISTS idx_orgs_suspended     ON organizations(suspended, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orgs_plan          ON organizations(plan, created_at DESC);
