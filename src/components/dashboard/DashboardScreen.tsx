@@ -39,6 +39,7 @@ const orderStatusVariant = {
   confirmed:        "accent",
   out_for_delivery: "info",
   delivered:        "success",
+  cancelled:        "outline",
 } as const;
 
 const orderStatusLabel = {
@@ -46,6 +47,7 @@ const orderStatusLabel = {
   confirmed:        "Confirmed",
   out_for_delivery: "Out for delivery",
   delivered:        "Delivered",
+  cancelled:        "Cancelled",
 } as const;
 
 const batchTypeVariant = {

@@ -1,9 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { Icons } from "@/components/icons";
 import { naira } from "@/lib/utils";
+import { useOrg } from "@/contexts/OrgContext";
+import { updateOrgProfile, updateNotificationSettings } from "@/app/actions/settings";
+import { inviteMember } from "@/app/actions/team";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+const SUPABASE_CONFIGURED =
+  !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL !== "https://your-project.supabase.co";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 type NotifRow = {
   id: string; category: string; label: string; desc: string;
   wa: boolean; email: boolean; push: boolean; threshold?: string;
@@ -14,45 +21,40 @@ type UserRow = {
   email: string; phone: string; access: string; active: boolean; lastLogin: string;
 };
 
-// ── Static data ───────────────────────────────────────────────────────────────
+// ── Static data ────────────────────────────────────────────────────────────────
 const USERS_INIT: UserRow[] = [
   { id: "U01", name: "Chukwuemeka Adigwe",  initials: "CA", role: "Owner",        email: "emeka@adigwefarms.ng",  phone: "+234 801 234 5678", access: "full",      active: true,  lastLogin: "Today, 9:14 AM" },
   { id: "U02", name: "Ngozi Okafor",         initials: "NO", role: "Farm Manager", email: "ngozi@adigwefarms.ng",  phone: "+234 802 345 6789", access: "manager",   active: true,  lastLogin: "Today, 7:32 AM" },
   { id: "U03", name: "Tunde Adeyemi",        initials: "TA", role: "Vet Officer",  email: "tunde@adigwefarms.ng",  phone: "+234 803 456 7890", access: "vet",       active: true,  lastLogin: "Yesterday" },
   { id: "U04", name: "Amaka Eze",            initials: "AE", role: "Sales Officer",email: "amaka@adigwefarms.ng",  phone: "+234 804 567 8901", access: "sales",     active: true,  lastLogin: "2 days ago" },
-  { id: "U05", name: "Biodun Fashola",       initials: "BF", role: "Logistics",   email: "biodun@adigwefarms.ng", phone: "+234 805 678 9012", access: "logistics", active: false, lastLogin: "1 week ago" },
+  { id: "U05", name: "Biodun Fashola",       initials: "BF", role: "Logistics",    email: "biodun@adigwefarms.ng", phone: "+234 805 678 9012", access: "logistics", active: false, lastLogin: "1 week ago" },
 ];
 
 const ACCESS_LABELS: Record<string, { label: string; color: string }> = {
-  full:      { label: "Full Access",    color: "accent"  },
-  manager:   { label: "Farm Manager",   color: "success" },
-  vet:       { label: "Vet Officer",    color: "info"    },
-  sales:     { label: "Sales Officer",  color: "warning" },
-  logistics: { label: "Logistics",      color: "outline" },
-  readonly:  { label: "Read Only",      color: "outline" },
+  full:      { label: "Full Access",   color: "accent"  },
+  manager:   { label: "Farm Manager",  color: "success" },
+  vet:       { label: "Vet Officer",   color: "info"    },
+  sales:     { label: "Sales Officer", color: "warning" },
+  logistics: { label: "Logistics",     color: "outline" },
+  readonly:  { label: "Read Only",     color: "outline" },
 };
 
 const NOTIF_INIT: NotifRow[] = [
-  // Bird Health
   { id: "N01", category: "Bird Health",   label: "Mortality spike",           desc: "Alert when batch mortality exceeds threshold",    wa: true,  email: true,  push: true,  threshold: "> 2% / day" },
   { id: "N02", category: "Bird Health",   label: "Disease alert nearby",      desc: "Notify when NAFDAC reports disease in your zone", wa: true,  email: false, push: true  },
   { id: "N03", category: "Bird Health",   label: "Vaccination due",           desc: "Remind 48 h before scheduled vaccination",        wa: true,  email: false, push: false, threshold: "2 days prior" },
   { id: "N04", category: "Bird Health",   label: "Temperature out of range",  desc: "House sensor above/below safe range",             wa: true,  email: false, push: true,  threshold: "< 20°C or > 32°C" },
-  // Operations
-  { id: "N05", category: "Operations",    label: "Feed stock low",            desc: "Alert when any item drops below reorder level",   wa: true,  email: true,  push: false, threshold: "< 7 days supply" },
-  { id: "N06", category: "Operations",    label: "Medication expiry",         desc: "Warn before vaccine or drug expires",             wa: false, email: true,  push: false, threshold: "14 days prior" },
-  { id: "N07", category: "Operations",    label: "Delivery delay",            desc: "Flag delivery that is more than 2 h late",        wa: true,  email: false, push: false },
-  // Sales & Orders
-  { id: "N08", category: "Sales",         label: "New order received",        desc: "Notify immediately on every new order",           wa: true,  email: false, push: true  },
-  { id: "N09", category: "Sales",         label: "Order fulfilled",           desc: "Confirmation when delivery is marked complete",   wa: true,  email: false, push: false },
-  { id: "N10", category: "Sales",         label: "Invoice overdue",           desc: "Remind for unpaid invoices past due date",        wa: true,  email: true,  push: false, threshold: "+7 days" },
-  // Finance
-  { id: "N11", category: "Finance",       label: "Daily revenue summary",     desc: "Morning summary of previous day's revenue",       wa: true,  email: false, push: false },
-  { id: "N12", category: "Finance",       label: "Weekly P&L digest",         desc: "Monday morning P&L report",                       wa: false, email: true,  push: false },
-  { id: "N13", category: "Finance",       label: "Large transaction",         desc: "Any single transaction above threshold",          wa: true,  email: true,  push: false, threshold: "> ₦500,000" },
-  // System
-  { id: "N14", category: "System",        label: "New device login",          desc: "Notify when account is accessed from a new device", wa: true, email: true,  push: true  },
-  { id: "N15", category: "System",        label: "Daily backup complete",     desc: "Confirmation that data was backed up successfully", wa: false, email: false, push: false },
+  { id: "N05", category: "Operations",   label: "Feed stock low",            desc: "Alert when any item drops below reorder level",   wa: true,  email: true,  push: false, threshold: "< 7 days supply" },
+  { id: "N06", category: "Operations",   label: "Medication expiry",         desc: "Warn before vaccine or drug expires",             wa: false, email: true,  push: false, threshold: "14 days prior" },
+  { id: "N07", category: "Operations",   label: "Delivery delay",            desc: "Flag delivery that is more than 2 h late",        wa: true,  email: false, push: false },
+  { id: "N08", category: "Sales",        label: "New order received",        desc: "Notify immediately on every new order",           wa: true,  email: false, push: true  },
+  { id: "N09", category: "Sales",        label: "Order fulfilled",           desc: "Confirmation when delivery is marked complete",   wa: true,  email: false, push: false },
+  { id: "N10", category: "Sales",        label: "Invoice overdue",           desc: "Remind for unpaid invoices past due date",        wa: true,  email: true,  push: false, threshold: "+7 days" },
+  { id: "N11", category: "Finance",      label: "Daily revenue summary",     desc: "Morning summary of previous day's revenue",       wa: true,  email: false, push: false },
+  { id: "N12", category: "Finance",      label: "Weekly P&L digest",         desc: "Monday morning P&L report",                       wa: false, email: true,  push: false },
+  { id: "N13", category: "Finance",      label: "Large transaction",         desc: "Any single transaction above threshold",          wa: true,  email: true,  push: false, threshold: "> ₦500,000" },
+  { id: "N14", category: "System",       label: "New device login",          desc: "Notify when account is accessed from a new device", wa: true, email: true,  push: true  },
+  { id: "N15", category: "System",       label: "Daily backup complete",     desc: "Confirmation that data was backed up successfully", wa: false, email: false, push: false },
 ];
 
 const INVOICES = [
@@ -65,47 +67,17 @@ const INVOICES = [
 ];
 
 const INTEGRATIONS = [
-  {
-    id: "wa",       icon: "📱", name: "WhatsApp Business API",
-    desc: "Send automated order confirmations, alerts and reports via official WA Business API",
-    status: "connected", detail: "Linked: +234 801 234 5678 · Business Account verified",
-    actionLabel: "Configure",
-  },
-  {
-    id: "market",   icon: "🛒", name: "Acre Marketplace",
-    desc: "Sync your store products and receive orders directly into the ERP",
-    status: "connected", detail: "Storefront live · Last sync: today 08:00",
-    actionLabel: "Manage",
-  },
-  {
-    id: "paystack", icon: "💳", name: "Paystack",
-    desc: "Accept online payments for marketplace orders and generate payment links",
-    status: "connected", detail: "Live mode · Public key ending ***4f2a",
-    actionLabel: "Settings",
-  },
-  {
-    id: "flutter",  icon: "💸", name: "Flutterwave",
-    desc: "Alternative payment processor for mobile money and cross-border transactions",
-    status: "disconnected", detail: "Not connected",
-    actionLabel: "Connect",
-  },
-  {
-    id: "sheets",   icon: "📊", name: "Google Sheets Export",
-    desc: "Automatically push daily reports to a connected Google Sheet",
-    status: "disconnected", detail: "Not connected",
-    actionLabel: "Connect",
-  },
-  {
-    id: "nafdac",   icon: "🏛️", name: "NAFDAC Disease Watch API",
-    desc: "Pull live disease alerts from NAFDAC for your state and neighbouring zones",
-    status: "connected", detail: "Ogun State zone active · Last pull: 1 h ago",
-    actionLabel: "Configure",
-  },
+  { id: "wa",       icon: "📱", name: "WhatsApp Business API",       desc: "Send automated order confirmations, alerts and reports via official WA Business API", status: "connected",    detail: "Linked: +234 801 234 5678 · Business Account verified", actionLabel: "Configure" },
+  { id: "market",   icon: "🛒", name: "Acre Marketplace",            desc: "Sync your store products and receive orders directly into the ERP",                   status: "connected",    detail: "Storefront live · Last sync: today 08:00",              actionLabel: "Manage" },
+  { id: "paystack", icon: "💳", name: "Paystack",                    desc: "Accept online payments for marketplace orders and generate payment links",            status: "connected",    detail: "Live mode · Public key ending ***4f2a",                 actionLabel: "Settings" },
+  { id: "flutter",  icon: "💸", name: "Flutterwave",                 desc: "Alternative payment processor for mobile money and cross-border transactions",       status: "disconnected", detail: "Not connected",                                         actionLabel: "Connect" },
+  { id: "sheets",   icon: "📊", name: "Google Sheets Export",        desc: "Automatically push daily reports to a connected Google Sheet",                       status: "disconnected", detail: "Not connected",                                         actionLabel: "Connect" },
+  { id: "nafdac",   icon: "🏛️", name: "NAFDAC Disease Watch API",   desc: "Pull live disease alerts from NAFDAC for your state and neighbouring zones",         status: "connected",    detail: "Ogun State zone active · Last pull: 1 h ago",           actionLabel: "Configure" },
 ];
 
 const TABS = ["Farm Profile", "Notifications", "Users & Access", "Integrations", "System", "Billing"];
 
-// ── Toggle component ──────────────────────────────────────────────────────────
+// ── Toggle ────────────────────────────────────────────────────────────────────
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <div
@@ -132,8 +104,35 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
-// ── Invite modal ──────────────────────────────────────────────────────────────
-function InviteModal({ onClose }: { onClose: () => void }) {
+// ── InviteModal ───────────────────────────────────────────────────────────────
+function InviteModal({
+  orgId,
+  onClose,
+  onSuccess,
+}: {
+  orgId: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ full_name: "", email: "", phone: "", role: "manager" });
+
+  function handleInvite() {
+    if (!form.email.trim()) { setError("Email is required"); return; }
+    if (!form.full_name.trim()) { setError("Name is required"); return; }
+    if (!SUPABASE_CONFIGURED) {
+      // In demo mode, just close as if succeeded
+      onSuccess(); onClose(); return;
+    }
+    startTransition(async () => {
+      const res = await inviteMember({ org_id: orgId, email: form.email, full_name: form.full_name, role: form.role });
+      if (!res.success) { setError(res.error ?? "Failed to invite member"); return; }
+      onSuccess();
+      onClose();
+    });
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -150,19 +149,26 @@ function InviteModal({ onClose }: { onClose: () => void }) {
           <div className="form-grid">
             <div className="form-row">
               <label>Full Name</label>
-              <input className="input" placeholder="e.g. Kemi Adeyemi" />
+              <input className="input" value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                placeholder="e.g. Kemi Adeyemi" />
             </div>
             <div className="form-row">
               <label>Email Address</label>
-              <input className="input" type="email" placeholder="email@adigwefarms.ng" />
+              <input className="input" type="email" value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="email@adigwefarms.ng" />
             </div>
             <div className="form-row">
               <label>Phone (WhatsApp)</label>
-              <input className="input" placeholder="+234 8XX XXX XXXX" />
+              <input className="input" value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="+234 8XX XXX XXXX" />
             </div>
             <div className="form-row">
               <label>Access Level</label>
-              <select className="select">
+              <select className="select" value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 <option value="manager">Farm Manager</option>
                 <option value="vet">Vet Officer</option>
                 <option value="sales">Sales Officer</option>
@@ -171,52 +177,72 @@ function InviteModal({ onClose }: { onClose: () => void }) {
               </select>
             </div>
           </div>
-          <div className="form-row">
-            <label>Departments / Modules</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-              {["Poultry", "Feed", "Vaccinations", "Sales", "Finance", "HR", "Inventory", "Logistics", "AI"].map((m) => (
-                <label key={m} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer" }}>
-                  <input type="checkbox" defaultChecked />
-                  <span>{m}</span>
-                </label>
-              ))}
+          {error && (
+            <div className="banner danger" style={{ marginTop: 12 }}>
+              <div className="icon-dot danger"><Icons.Alert size={12} /></div>
+              <span>{error}</span>
             </div>
-          </div>
+          )}
         </div>
         <div className="modal-footer">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn accent" onClick={onClose}>Send Invite</button>
+          <button className="btn" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button className="btn accent" onClick={handleInvite} disabled={isPending}>
+            {isPending ? "Sending…" : "Send Invite"}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── SettingsScreen ─────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const [tab, setTab] = useState("Farm Profile");
   const [notifs, setNotifs] = useState<NotifRow[]>(NOTIF_INIT);
-  const [users, setUsers]   = useState<UserRow[]>(USERS_INIT);
+  const [users, setUsers] = useState<UserRow[]>(USERS_INIT);
   const [showInvite, setShowInvite] = useState(false);
-  const [saved, setSaved]   = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  // Farm profile state
+  const { org } = useOrg();
+
+  // Farm profile state — defaults used when org not loaded
   const [profile, setProfile] = useState({
-    farmName: "Adigwe Family Farms",
-    regNumber: "CAC/RC-1823456",
-    state: "Ogun",
-    lga: "Sagamu",
-    address: "Plot 15, Adigwe Road, Sagamu Industrial Layout, Ogun State",
-    ownerName: "Chukwuemeka Adigwe",
-    ownerTitle: "Managing Director",
-    ownerEmail: "emeka@adigwefarms.ng",
-    ownerPhone: "+234 801 234 5678",
-    waNumber: "2348012345678",
+    farmName:    "Adigwe Family Farms",
+    regNumber:   "CAC/RC-1823456",
+    state:       "Ogun",
+    lga:         "Sagamu",
+    address:     "Plot 15, Adigwe Road, Sagamu Industrial Layout, Ogun State",
+    ownerName:   "Chukwuemeka Adigwe",
+    ownerTitle:  "Managing Director",
+    ownerEmail:  "emeka@adigwefarms.ng",
+    ownerPhone:  "+234 801 234 5678",
+    waNumber:    "2348012345678",
     established: "2019",
-    size: "8.5",
-    capacity: "50000",
-    website: "adigwefarms.ng",
+    size:        "8.5",
+    capacity:    "50000",
+    website:     "adigwefarms.ng",
   });
+
+  // Sync profile from DB org when it loads
+  useEffect(() => {
+    if (!org) return;
+    setProfile((prev) => ({
+      ...prev,
+      farmName:    org.name ?? prev.farmName,
+      regNumber:   org.reg_number ?? prev.regNumber,
+      state:       org.state ?? prev.state,
+      lga:         org.lga ?? prev.lga,
+      address:     org.address ?? prev.address,
+      ownerName:   org.owner_name ?? prev.ownerName,
+      ownerPhone:  org.owner_phone ?? prev.ownerPhone,
+      waNumber:    org.wa_number ?? prev.waNumber,
+      established: org.established_year ? String(org.established_year) : prev.established,
+      size:        org.size_ha != null ? String(org.size_ha) : prev.size,
+      capacity:    org.bird_capacity != null ? String(org.bird_capacity) : prev.capacity,
+    }));
+  }, [org?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // System prefs state
   const [prefs, setPrefs] = useState({
@@ -229,9 +255,38 @@ export default function SettingsScreen() {
     theme: "system",
   });
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2200);
+  async function handleSave() {
+    setSaveError(null);
+    if (tab === "Farm Profile" && SUPABASE_CONFIGURED && org) {
+      startTransition(async () => {
+        const res = await updateOrgProfile(org.id, {
+          name:            profile.farmName,
+          reg_number:      profile.regNumber || undefined,
+          state:           profile.state || undefined,
+          lga:             profile.lga || undefined,
+          address:         profile.address || undefined,
+          owner_name:      profile.ownerName || undefined,
+          owner_phone:     profile.ownerPhone || undefined,
+          wa_number:       profile.waNumber || undefined,
+          established_year: profile.established ? parseInt(profile.established) : undefined,
+          size_ha:         profile.size ? parseFloat(profile.size) : undefined,
+          bird_capacity:   profile.capacity ? parseInt(profile.capacity) : undefined,
+        });
+        if (!res.success) { setSaveError(res.error ?? "Failed to save"); return; }
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2200);
+      });
+    } else if (tab === "Notifications" && SUPABASE_CONFIGURED && org) {
+      startTransition(async () => {
+        const res = await updateNotificationSettings(org.id, { preferences: notifs });
+        if (!res.success) { setSaveError(res.error ?? "Failed to save"); return; }
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2200);
+      });
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2200);
+    }
   }
 
   function toggleNotif(id: string, field: "wa" | "email" | "push") {
@@ -239,6 +294,7 @@ export default function SettingsScreen() {
   }
 
   const notifCategories = Array.from(new Set(notifs.map((n) => n.category)));
+  const showSaveBtn = tab === "Farm Profile" || tab === "Notifications" || tab === "System";
 
   return (
     <div className="page">
@@ -248,15 +304,12 @@ export default function SettingsScreen() {
           <h1 className="page-title">Settings</h1>
           <div className="page-sub">Manage your farm profile, team, notifications and integrations</div>
         </div>
-        {(tab === "Farm Profile" || tab === "System") && (
+        {showSaveBtn && (
           <div className="page-actions">
-            {saved && (
-              <span className="badge success" style={{ gap: 5 }}>
-                <Icons.Check size={11} /> Saved
-              </span>
-            )}
-            <button className="btn accent" onClick={handleSave}>
-              <Icons.Check size={13} /> Save changes
+            {saveError && <span className="badge danger" style={{ gap: 5 }}>{saveError}</span>}
+            {saved && <span className="badge success" style={{ gap: 5 }}><Icons.Check size={11} /> Saved</span>}
+            <button className="btn accent" onClick={handleSave} disabled={isPending}>
+              <Icons.Check size={13} /> {isPending ? "Saving…" : "Save changes"}
             </button>
           </div>
         )}
@@ -280,7 +333,6 @@ export default function SettingsScreen() {
       {/* ── Tab: Farm Profile ──────────────────────────────────────────────── */}
       {tab === "Farm Profile" && (
         <div className="stack-4">
-          {/* Business info */}
           <div className="card">
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
               <div style={{
@@ -352,7 +404,6 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Owner / Contact */}
           <div className="card">
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Owner & Primary Contact</div>
             <div className="form-grid">
@@ -398,10 +449,9 @@ export default function SettingsScreen() {
         </div>
       )}
 
-      {/* ── Tab: Notifications ────────────────────────────────────────────── */}
+      {/* ── Tab: Notifications ─────────────────────────────────────────────── */}
       {tab === "Notifications" && (
         <div className="stack-4">
-          {/* Channel legend */}
           <div className="card" style={{ padding: "12px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-muted)" }}>DELIVERY CHANNELS</span>
@@ -415,14 +465,8 @@ export default function SettingsScreen() {
                 <Icons.Phone size={13} style={{ color: "var(--accent)" }} /> Push
               </span>
               <div className="spacer" />
-              <button
-                className="btn sm"
-                onClick={() => setNotifs(notifs.map((n) => ({ ...n, wa: true, email: true, push: true })))}
-              >Enable all</button>
-              <button
-                className="btn sm"
-                onClick={() => setNotifs(notifs.map((n) => ({ ...n, wa: false, email: false, push: false })))}
-              >Disable all</button>
+              <button className="btn sm" onClick={() => setNotifs(notifs.map((n) => ({ ...n, wa: true, email: true, push: true })))}>Enable all</button>
+              <button className="btn sm" onClick={() => setNotifs(notifs.map((n) => ({ ...n, wa: false, email: false, push: false })))}>Disable all</button>
             </div>
           </div>
 
@@ -433,33 +477,20 @@ export default function SettingsScreen() {
               </div>
               <div>
                 {notifs.filter((n) => n.category === cat).map((n, i, arr) => (
-                  <div
-                    key={n.id}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
-                      borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none",
-                    }}
-                  >
+                  <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{n.label}</div>
                       <div className="muted" style={{ fontSize: 12 }}>{n.desc}</div>
-                      {n.threshold && (
-                        <span className="badge outline" style={{ marginTop: 4 }}>
-                          Threshold: {n.threshold}
-                        </span>
-                      )}
+                      {n.threshold && <span className="badge outline" style={{ marginTop: 4 }}>Threshold: {n.threshold}</span>}
                     </div>
-                    {/* WA toggle */}
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 36 }}>
                       <Icons.WhatsApp size={11} className="whatsapp-icon" />
                       <Toggle on={n.wa} onToggle={() => toggleNotif(n.id, "wa")} />
                     </div>
-                    {/* Email toggle */}
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 36 }}>
                       <Icons.Bell size={11} style={{ color: "var(--info)" }} />
                       <Toggle on={n.email} onToggle={() => toggleNotif(n.id, "email")} />
                     </div>
-                    {/* Push toggle */}
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 36 }}>
                       <Icons.Phone size={11} style={{ color: "var(--accent)" }} />
                       <Toggle on={n.push} onToggle={() => toggleNotif(n.id, "push")} />
@@ -475,7 +506,6 @@ export default function SettingsScreen() {
       {/* ── Tab: Users & Access ──────────────────────────────────────────────── */}
       {tab === "Users & Access" && (
         <div className="stack-4">
-          {/* Access level legend */}
           <div className="card" style={{ padding: "14px 16px" }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-muted)", marginBottom: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Access Level Reference</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
@@ -487,7 +517,6 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Team members */}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
               <span style={{ fontWeight: 600, fontSize: 13 }}>Team Members</span>
@@ -500,12 +529,7 @@ export default function SettingsScreen() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Member</th>
-                    <th>Role</th>
-                    <th>Access Level</th>
-                    <th>Last Login</th>
-                    <th>Status</th>
-                    <th></th>
+                    <th>Member</th><th>Role</th><th>Access Level</th><th>Last Login</th><th>Status</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -530,9 +554,7 @@ export default function SettingsScreen() {
                             className="select"
                             style={{ height: 26, fontSize: 11, width: "auto", padding: "0 8px" }}
                             value={u.access}
-                            onChange={(e) =>
-                              setUsers(users.map((x) => x.id === u.id ? { ...x, access: e.target.value } : x))
-                            }
+                            onChange={(e) => setUsers(users.map((x) => x.id === u.id ? { ...x, access: e.target.value } : x))}
                           >
                             {Object.entries(ACCESS_LABELS).map(([k, v]) => (
                               <option key={k} value={k}>{v.label}</option>
@@ -542,21 +564,14 @@ export default function SettingsScreen() {
                         <td style={{ fontSize: 12, color: "var(--fg-muted)" }}>{u.lastLogin}</td>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <Toggle
-                              on={u.active}
-                              onToggle={() =>
-                                setUsers(users.map((x) => x.id === u.id ? { ...x, active: !x.active } : x))
-                              }
-                            />
+                            <Toggle on={u.active} onToggle={() => setUsers(users.map((x) => x.id === u.id ? { ...x, active: !x.active } : x))} />
                             <span style={{ fontSize: 11, color: u.active ? "var(--success)" : "var(--fg-faint)" }}>
                               {u.active ? "Active" : "Disabled"}
                             </span>
                           </div>
                         </td>
                         <td>
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <button className="btn sm ghost icon-only"><Icons.More size={13} /></button>
-                          </div>
+                          <button className="btn sm ghost icon-only"><Icons.More size={13} /></button>
                         </td>
                       </tr>
                     );
@@ -566,7 +581,6 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Pending invites (empty state) */}
           <div className="card">
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Pending Invites</div>
             <div className="empty" style={{ padding: "24px 16px" }}>
@@ -584,18 +598,14 @@ export default function SettingsScreen() {
           {INTEGRATIONS.map((intg) => (
             <div className="card" key={intg.id} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10, fontSize: 20,
-                  background: "var(--bg-subtle)", display: "grid", placeItems: "center", flexShrink: 0,
-                }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, fontSize: 20, background: "var(--bg-subtle)", display: "grid", placeItems: "center", flexShrink: 0 }}>
                   {intg.icon}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{intg.name}</span>
                     <span className={`badge ${intg.status === "connected" ? "success" : "outline"}`} style={{ fontSize: 10 }}>
-                      <span className="dot" />
-                      {intg.status === "connected" ? "Connected" : "Not connected"}
+                      <span className="dot" />{intg.status === "connected" ? "Connected" : "Not connected"}
                     </span>
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 3, lineHeight: 1.5 }}>{intg.desc}</div>
@@ -605,12 +615,8 @@ export default function SettingsScreen() {
                 {intg.detail}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className={`btn sm ${intg.status === "connected" ? "" : "accent"}`}>
-                  {intg.actionLabel}
-                </button>
-                {intg.status === "connected" && (
-                  <button className="btn sm danger">Disconnect</button>
-                )}
+                <button className={`btn sm ${intg.status === "connected" ? "" : "accent"}`}>{intg.actionLabel}</button>
+                {intg.status === "connected" && <button className="btn sm danger">Disconnect</button>}
               </div>
             </div>
           ))}
@@ -625,8 +631,7 @@ export default function SettingsScreen() {
             <div className="form-grid">
               <div className="form-row">
                 <label>Timezone</label>
-                <select className="select" value={prefs.timezone}
-                  onChange={(e) => setPrefs({ ...prefs, timezone: e.target.value })}>
+                <select className="select" value={prefs.timezone} onChange={(e) => setPrefs({ ...prefs, timezone: e.target.value })}>
                   <option value="Africa/Lagos">Africa/Lagos (WAT, UTC+1)</option>
                   <option value="Africa/Abidjan">Africa/Abidjan (GMT, UTC+0)</option>
                   <option value="Africa/Nairobi">Africa/Nairobi (EAT, UTC+3)</option>
@@ -634,8 +639,7 @@ export default function SettingsScreen() {
               </div>
               <div className="form-row">
                 <label>Date Format</label>
-                <select className="select" value={prefs.dateFormat}
-                  onChange={(e) => setPrefs({ ...prefs, dateFormat: e.target.value })}>
+                <select className="select" value={prefs.dateFormat} onChange={(e) => setPrefs({ ...prefs, dateFormat: e.target.value })}>
                   <option value="DD MMM YYYY">21 May 2026</option>
                   <option value="DD/MM/YYYY">21/05/2026</option>
                   <option value="MM/DD/YYYY">05/21/2026</option>
@@ -644,8 +648,7 @@ export default function SettingsScreen() {
               </div>
               <div className="form-row">
                 <label>Currency</label>
-                <select className="select" value={prefs.currency}
-                  onChange={(e) => setPrefs({ ...prefs, currency: e.target.value })}>
+                <select className="select" value={prefs.currency} onChange={(e) => setPrefs({ ...prefs, currency: e.target.value })}>
                   <option value="NGN">NGN — Nigerian Naira (₦)</option>
                   <option value="USD">USD — US Dollar ($)</option>
                   <option value="GBP">GBP — British Pound (£)</option>
@@ -653,16 +656,14 @@ export default function SettingsScreen() {
               </div>
               <div className="form-row">
                 <label>Number Separator</label>
-                <select className="select" value={prefs.decimalSep}
-                  onChange={(e) => setPrefs({ ...prefs, decimalSep: e.target.value })}>
+                <select className="select" value={prefs.decimalSep} onChange={(e) => setPrefs({ ...prefs, decimalSep: e.target.value })}>
                   <option value="point">1,234.56 (comma thousands, point decimal)</option>
                   <option value="comma">1.234,56 (point thousands, comma decimal)</option>
                 </select>
               </div>
               <div className="form-row">
                 <label>Language</label>
-                <select className="select" value={prefs.language}
-                  onChange={(e) => setPrefs({ ...prefs, language: e.target.value })}>
+                <select className="select" value={prefs.language} onChange={(e) => setPrefs({ ...prefs, language: e.target.value })}>
                   <option value="en-NG">English (Nigeria)</option>
                   <option value="en-GB">English (UK)</option>
                   <option value="yo-NG">Yorùbá</option>
@@ -672,8 +673,7 @@ export default function SettingsScreen() {
               </div>
               <div className="form-row">
                 <label>Fiscal Year Start</label>
-                <select className="select" value={prefs.fiscalStart}
-                  onChange={(e) => setPrefs({ ...prefs, fiscalStart: e.target.value })}>
+                <select className="select" value={prefs.fiscalStart} onChange={(e) => setPrefs({ ...prefs, fiscalStart: e.target.value })}>
                   {["January","February","March","April","May","June","July","August","September","October","November","December"].map((m) => (
                     <option key={m}>{m}</option>
                   ))}
@@ -686,17 +686,13 @@ export default function SettingsScreen() {
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 16 }}>Appearance</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {(["light", "dark", "system"] as const).map((opt) => (
-                <div
-                  key={opt}
-                  onClick={() => setPrefs({ ...prefs, theme: opt })}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                    padding: "14px 20px", borderRadius: "var(--radius)", cursor: "pointer",
-                    border: `2px solid ${prefs.theme === opt ? "var(--accent)" : "var(--border)"}`,
-                    background: prefs.theme === opt ? "var(--accent-subtle)" : "var(--bg-card)",
-                    minWidth: 90,
-                  }}
-                >
+                <div key={opt} onClick={() => setPrefs({ ...prefs, theme: opt })} style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                  padding: "14px 20px", borderRadius: "var(--radius)", cursor: "pointer",
+                  border: `2px solid ${prefs.theme === opt ? "var(--accent)" : "var(--border)"}`,
+                  background: prefs.theme === opt ? "var(--accent-subtle)" : "var(--bg-card)",
+                  minWidth: 90,
+                }}>
                   {opt === "light"  && <Icons.Sun  size={20} style={{ color: prefs.theme === opt ? "var(--accent)" : "var(--fg-muted)" }} />}
                   {opt === "dark"   && <Icons.Moon size={20} style={{ color: prefs.theme === opt ? "var(--accent)" : "var(--fg-muted)" }} />}
                   {opt === "system" && <Icons.Settings size={20} style={{ color: prefs.theme === opt ? "var(--accent)" : "var(--fg-muted)" }} />}
@@ -712,9 +708,9 @@ export default function SettingsScreen() {
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 16 }}>Data & Privacy</div>
             <div className="stack-3">
               {[
-                { label: "Auto-backup data daily", sub: "Encrypted backup to secure cloud storage", on: true },
-                { label: "Share anonymous usage analytics", sub: "Helps improve Acre Farm OS — no personal data included", on: false },
-                { label: "Allow Acre AI to learn from my farm data", sub: "Improves AI recommendations for your farm profile", on: true },
+                { label: "Auto-backup data daily",                    sub: "Encrypted backup to secure cloud storage",                               on: true },
+                { label: "Share anonymous usage analytics",            sub: "Helps improve Acre Farm OS — no personal data included",                  on: false },
+                { label: "Allow Acre AI to learn from my farm data",   sub: "Improves AI recommendations for your farm profile",                      on: true },
               ].map((item, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ flex: 1 }}>
@@ -742,7 +738,6 @@ export default function SettingsScreen() {
       {/* ── Tab: Billing ──────────────────────────────────────────────────── */}
       {tab === "Billing" && (
         <div className="stack-4">
-          {/* Current plan */}
           <div className="card" style={{ borderColor: "var(--accent)", background: "linear-gradient(135deg, var(--accent-subtle), var(--bg-card))" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 220 }}>
@@ -766,17 +761,16 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Usage meters */}
           <div className="card">
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 16 }}>Usage — May 2026</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16 }}>
               {[
-                { label: "Staff Seats",       used: 5,    limit: 10,   unit: "seats",  pct: 50 },
-                { label: "Bird Records",       used: 47820, limit: 100000, unit: "records", pct: 48 },
-                { label: "API Calls",          used: 8430,  limit: 20000, unit: "calls",   pct: 42 },
-                { label: "Storage",            used: 2.4,   limit: 10,   unit: "GB",     pct: 24 },
-                { label: "WhatsApp Messages",  used: 347,   limit: 1000, unit: "msgs",   pct: 35 },
-                { label: "AI Credits",         used: 210,   limit: 500,  unit: "credits", pct: 42 },
+                { label: "Staff Seats",      used: 5,    limit: 10,    unit: "seats",   pct: 50 },
+                { label: "Bird Records",      used: 47820, limit: 100000, unit: "records", pct: 48 },
+                { label: "API Calls",         used: 8430,  limit: 20000, unit: "calls",   pct: 42 },
+                { label: "Storage",           used: 2.4,   limit: 10,   unit: "GB",      pct: 24 },
+                { label: "WhatsApp Messages", used: 347,   limit: 1000, unit: "msgs",    pct: 35 },
+                { label: "AI Credits",        used: 210,   limit: 500,  unit: "credits", pct: 42 },
               ].map((item) => (
                 <div key={item.label}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
@@ -792,7 +786,6 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Invoice history */}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center" }}>
               <span style={{ fontWeight: 600, fontSize: 13 }}>Invoice History</span>
@@ -801,16 +794,7 @@ export default function SettingsScreen() {
             </div>
             <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
               <table className="table">
-                <thead>
-                  <tr>
-                    <th>Invoice</th>
-                    <th>Date</th>
-                    <th>Period</th>
-                    <th className="num">Amount</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Invoice</th><th>Date</th><th>Period</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {INVOICES.map((inv) => (
                     <tr key={inv.id}>
@@ -820,15 +804,10 @@ export default function SettingsScreen() {
                       <td className="num">{naira(inv.amount)}</td>
                       <td>
                         <span className={`badge ${inv.status === "paid" ? "success" : "warning"}`}>
-                          <span className="dot" />
-                          {inv.status === "paid" ? "Paid" : "Due"}
+                          <span className="dot" />{inv.status === "paid" ? "Paid" : "Due"}
                         </span>
                       </td>
-                      <td>
-                        <button className="btn sm ghost">
-                          <Icons.Download size={12} /> PDF
-                        </button>
-                      </td>
+                      <td><button className="btn sm ghost"><Icons.Download size={12} /> PDF</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -836,7 +815,6 @@ export default function SettingsScreen() {
             </div>
           </div>
 
-          {/* Payment method */}
           <div className="card">
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Payment Method</div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)", marginBottom: 10 }}>
@@ -856,7 +834,13 @@ export default function SettingsScreen() {
       )}
 
       {/* Invite modal */}
-      {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
+      {showInvite && (
+        <InviteModal
+          orgId={org?.id ?? ""}
+          onClose={() => setShowInvite(false)}
+          onSuccess={() => {/* could refresh team list */ }}
+        />
+      )}
     </div>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Icons } from "@/components/icons";
 import { VAX, BATCHES, TODAY } from "@/lib/data";
 import { num } from "@/lib/utils";
+import { useVaccinations } from "@/hooks/useVaccinations";
+import { markVaccinationDone } from "@/app/actions/vaccinations";
 
 const VACCINE_INVENTORY = [
   { name: "Newcastle Lasota", type: "Live", doses: 12000, unit: "dose vial", expiry: "2026-08-15", status: "ok" },
@@ -26,12 +28,55 @@ const STANDARD_SCHEDULE = [
   { day: 120, vaccine: "Newcastle booster", route: "Drinking water", types: ["layer", "dual"] },
 ];
 
+// Normalised view model used by this screen
+interface VaxItem {
+  id: string;
+  vaccine: string;
+  route: string | null;
+  batch: string | null;
+  house: string | null;
+  date: Date;
+  birds: number;
+  status: "pending" | "done";
+}
+
 function getDaysUntil(date: Date): number {
   return Math.round((date.getTime() - TODAY.getTime()) / 86400000);
 }
 
-function LogDoseModal({ vaxEntry, onClose }: { vaxEntry: typeof VAX[0] | null; onClose: () => void }) {
-  if (!vaxEntry) return null;
+function LogDoseModal({
+  vaxEntry,
+  onClose,
+  onSuccess,
+}: {
+  vaxEntry: VaxItem;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [dateVal, setDateVal] = useState(TODAY.toISOString().slice(0, 10));
+  const [administeredBy, setAdministeredBy] = useState("Dr. Ngozi Eze");
+  const [birds, setBirds] = useState(vaxEntry.birds);
+  const [lot, setLot] = useState("");
+  const [notes, setNotes] = useState("");
+
+  async function handleSave() {
+    setSaving(true);
+    setErrMsg(null);
+    const res = await markVaccinationDone(vaxEntry.id, {
+      administered_date: dateVal,
+      administered_by: administeredBy,
+      birds_count: birds,
+      lot_number: lot || undefined,
+      notes: notes || undefined,
+    });
+    setSaving(false);
+    if (!res.success) { setErrMsg(res.error ?? "Failed to log dose"); return; }
+    onSuccess();
+    onClose();
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -40,18 +85,19 @@ function LogDoseModal({ vaxEntry, onClose }: { vaxEntry: typeof VAX[0] | null; o
           <button className="btn ghost icon-only" onClick={onClose}><Icons.X size={14} /></button>
         </div>
         <div className="modal-body">
+          {errMsg && <div className="banner danger" style={{ marginBottom: 12 }}><Icons.Alert size={14} /> {errMsg}</div>}
           <div className="banner success" style={{ marginBottom: 12 }}>
             <div className="icon-dot success"><Icons.Check size={12} /></div>
-            <div>{vaxEntry.vaccine} for {vaxEntry.batch} — {num(vaxEntry.birds)} birds</div>
+            <div>{vaxEntry.vaccine}{vaxEntry.batch ? ` for ${vaxEntry.batch}` : ""} — {num(vaxEntry.birds)} birds</div>
           </div>
           <div className="form-grid">
             <div className="form-row">
               <label>Date administered</label>
-              <input className="input" type="date" defaultValue="2026-05-13" />
+              <input className="input" type="date" value={dateVal} onChange={(e) => setDateVal(e.target.value)} />
             </div>
             <div className="form-row">
               <label>Administered by</label>
-              <select className="select">
+              <select className="select" value={administeredBy} onChange={(e) => setAdministeredBy(e.target.value)}>
                 <option>Dr. Ngozi Eze</option>
                 <option>Babatunde Salami</option>
                 <option>External vet</option>
@@ -59,21 +105,23 @@ function LogDoseModal({ vaxEntry, onClose }: { vaxEntry: typeof VAX[0] | null; o
             </div>
             <div className="form-row">
               <label>Birds vaccinated</label>
-              <input className="input" type="number" defaultValue={vaxEntry.birds} />
+              <input className="input" type="number" value={birds} onChange={(e) => setBirds(+e.target.value)} />
             </div>
             <div className="form-row">
               <label>Batch / lot number</label>
-              <input className="input" placeholder="Vaccine lot #" />
+              <input className="input" placeholder="Vaccine lot #" value={lot} onChange={(e) => setLot(e.target.value)} />
             </div>
-            <div className="form-row">
+            <div className="form-row" style={{ gridColumn: "1 / -1" }}>
               <label>Notes</label>
-              <input className="input" placeholder="Any adverse reactions?" />
+              <input className="input" placeholder="Any adverse reactions?" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
           </div>
         </div>
         <div className="modal-footer">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn accent" onClick={onClose}><Icons.Check size={14} /> Mark as done</button>
+          <button className="btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn accent" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : <><Icons.Check size={14} /> Mark as done</>}
+          </button>
         </div>
       </div>
     </div>
@@ -82,21 +130,51 @@ function LogDoseModal({ vaxEntry, onClose }: { vaxEntry: typeof VAX[0] | null; o
 
 const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MAY_2026_FIRST_DOW = 4; // May 1 2026 is Friday (index 5... actually let me compute: May 1 = Thursday in 2026... actually May 1 2026 is a Thursday, dow 4)
+const MAY_2026_FIRST_DOW = 4;
 
 export default function VaccinationsScreen() {
+  const { vaccinations: dbVax, isLoading, refresh } = useVaccinations();
   const [view, setView] = useState("list");
-  const [logEntry, setLogEntry] = useState<typeof VAX[0] | null>(null);
+  const [logEntry, setLogEntry] = useState<VaxItem | null>(null);
+  const [, startTransition] = useTransition();
 
-  const overdue = VAX.filter(v => v.status === "pending" && getDaysUntil(v.date) < 0);
-  const today_vax = VAX.filter(v => v.status === "pending" && getDaysUntil(v.date) === 0);
-  const upcoming = VAX.filter(v => v.status === "pending" && getDaysUntil(v.date) > 0 && getDaysUntil(v.date) <= 14);
-  const done_vax = VAX.filter(v => v.status === "done");
-  const further = VAX.filter(v => v.status === "pending" && getDaysUntil(v.date) > 14);
+  // Normalise DB vaccinations to VaxItem, fallback to mock if empty
+  const items: VaxItem[] = (() => {
+    if (isLoading) return [];
+    if (Array.isArray(dbVax) && dbVax.length > 0 && "scheduled_date" in dbVax[0]) {
+      // Real DB data (Vaccination type)
+      return (dbVax as import("@/lib/supabase/types").Vaccination[]).map((v) => ({
+        id: v.id,
+        vaccine: v.vaccine,
+        route: v.route,
+        batch: v.batch_id ?? null,
+        house: null,
+        date: new Date(v.scheduled_date),
+        birds: v.birds_count ?? 0,
+        status: v.status as "pending" | "done",
+      }));
+    }
+    // Mock data fallback
+    return VAX.map((v) => ({
+      id: String(v.id),
+      vaccine: v.vaccine,
+      route: v.route,
+      batch: v.batch,
+      house: BATCHES.find((b) => b.id === v.batch)?.house ?? null,
+      date: v.date,
+      birds: v.birds,
+      status: v.status as "pending" | "done",
+    }));
+  })();
 
-  // Calendar: map vax events to May day numbers
-  const calendarEvents: Record<number, typeof VAX> = {};
-  VAX.forEach(v => {
+  const overdue = items.filter((v) => v.status === "pending" && getDaysUntil(v.date) < 0);
+  const today_vax = items.filter((v) => v.status === "pending" && getDaysUntil(v.date) === 0);
+  const upcoming = items.filter((v) => v.status === "pending" && getDaysUntil(v.date) > 0 && getDaysUntil(v.date) <= 14);
+  const done_vax = items.filter((v) => v.status === "done");
+  const further = items.filter((v) => v.status === "pending" && getDaysUntil(v.date) > 14);
+
+  const calendarEvents: Record<number, VaxItem[]> = {};
+  items.forEach((v) => {
     if (v.date.getMonth() === 4 && v.date.getFullYear() === 2026) {
       const d = v.date.getDate();
       if (!calendarEvents[d]) calendarEvents[d] = [];
@@ -110,8 +188,7 @@ export default function VaccinationsScreen() {
     return day >= 1 && day <= 31 ? day : null;
   });
 
-  const VaxRow = ({ v }: { v: typeof VAX[0] }) => {
-    const batch = BATCHES.find(b => b.id === v.batch);
+  const VaxRow = ({ v }: { v: VaxItem }) => {
     const days = getDaysUntil(v.date);
     return (
       <tr>
@@ -119,8 +196,8 @@ export default function VaccinationsScreen() {
           <div style={{ fontWeight: 500, fontSize: 13 }}>{v.vaccine}</div>
           <div className="faint" style={{ fontSize: 11.5 }}>{v.route}</div>
         </td>
-        <td className="id-cell">{v.batch}</td>
-        <td className="muted" style={{ fontSize: 12 }}>{batch?.house}</td>
+        <td className="id-cell">{v.batch ?? "—"}</td>
+        <td className="muted" style={{ fontSize: 12 }}>{v.house ?? "—"}</td>
         <td className="muted" style={{ fontSize: 12.5 }}>{v.date.toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</td>
         <td className="num">{num(v.birds)}</td>
         <td>
@@ -146,11 +223,13 @@ export default function VaccinationsScreen() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Vaccinations</h1>
-          <div className="page-sub">{overdue.length} overdue · {today_vax.length} today · {upcoming.length} upcoming · {done_vax.length} completed</div>
+          <div className="page-sub">
+            {isLoading ? "Loading…" : `${overdue.length} overdue · ${today_vax.length} today · ${upcoming.length} upcoming · ${done_vax.length} completed`}
+          </div>
         </div>
         <div className="page-actions">
           <div className="btn-group">
-            {["calendar", "list", "programs"].map(v => (
+            {["calendar", "list", "programs"].map((v) => (
               <button key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
                 {v.charAt(0).toUpperCase() + v.slice(1)}
               </button>
@@ -163,18 +242,16 @@ export default function VaccinationsScreen() {
       {overdue.length > 0 && (
         <div className="banner danger" style={{ marginBottom: 16 }}>
           <div className="icon-dot danger"><Icons.Warning size={12} /></div>
-          <div><strong>{overdue.length} overdue vaccination(s)</strong> — {overdue.map(v => v.vaccine).join(", ")}. Please log or reschedule immediately.</div>
+          <div><strong>{overdue.length} overdue vaccination(s)</strong> — {overdue.map((v) => v.vaccine).join(", ")}. Please log or reschedule immediately.</div>
         </div>
       )}
 
       {view === "calendar" && (
         <div className="card">
-          <div className="card-header">
-            <div className="card-title">May 2026</div>
-          </div>
+          <div className="card-header"><div className="card-title">May 2026</div></div>
           <div style={{ padding: "0 16px 20px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
-              {WEEK_DAYS.map(d => (
+              {WEEK_DAYS.map((d) => (
                 <div key={d} style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: "var(--fg-muted)", padding: "4px 0" }}>{d}</div>
               ))}
             </div>
@@ -204,61 +281,24 @@ export default function VaccinationsScreen() {
 
       {view === "list" && (
         <div className="stack-3">
-          {overdue.length > 0 && (
-            <div>
-              <div className="section-title" style={{ color: "var(--danger-soft-fg)", marginBottom: 8 }}>Overdue ({overdue.length})</div>
+          {isLoading && <div className="muted" style={{ padding: 24, textAlign: "center" }}>Loading vaccinations…</div>}
+          {[
+            { label: "Overdue", color: "var(--danger-soft-fg)", list: overdue },
+            { label: "Today", color: "var(--warning-soft-fg)", list: today_vax },
+            { label: "Upcoming · next 14 days", color: undefined, list: upcoming },
+            { label: "Further out", color: undefined, list: further },
+            { label: "Completed", color: undefined, list: done_vax },
+          ].filter((g) => g.list.length > 0).map((g) => (
+            <div key={g.label}>
+              <div className="section-title" style={{ color: g.color, marginBottom: 8 }}>{g.label} ({g.list.length})</div>
               <div className="table-wrap">
                 <table className="table">
                   <thead><tr><th>Vaccine</th><th>Batch</th><th>House</th><th>Date</th><th className="num">Birds</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{overdue.map(v => <VaxRow key={v.id} v={v} />)}</tbody>
+                  <tbody>{g.list.map((v) => <VaxRow key={v.id} v={v} />)}</tbody>
                 </table>
               </div>
             </div>
-          )}
-          {today_vax.length > 0 && (
-            <div>
-              <div className="section-title" style={{ color: "var(--warning-soft-fg)", marginBottom: 8 }}>Today ({today_vax.length})</div>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead><tr><th>Vaccine</th><th>Batch</th><th>House</th><th>Date</th><th className="num">Birds</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{today_vax.map(v => <VaxRow key={v.id} v={v} />)}</tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {upcoming.length > 0 && (
-            <div>
-              <div className="section-title" style={{ marginBottom: 8 }}>Upcoming · next 14 days ({upcoming.length})</div>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead><tr><th>Vaccine</th><th>Batch</th><th>House</th><th>Date</th><th className="num">Birds</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{upcoming.map(v => <VaxRow key={v.id} v={v} />)}</tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {further.length > 0 && (
-            <div>
-              <div className="section-title" style={{ marginBottom: 8 }}>Further out ({further.length})</div>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead><tr><th>Vaccine</th><th>Batch</th><th>House</th><th>Date</th><th className="num">Birds</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{further.map(v => <VaxRow key={v.id} v={v} />)}</tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {done_vax.length > 0 && (
-            <div>
-              <div className="section-title" style={{ marginBottom: 8 }}>Completed ({done_vax.length})</div>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead><tr><th>Vaccine</th><th>Batch</th><th>House</th><th>Date</th><th className="num">Birds</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{done_vax.map(v => <VaxRow key={v.id} v={v} />)}</tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -266,18 +306,18 @@ export default function VaccinationsScreen() {
         <div className="grid-2" style={{ gap: 16, alignItems: "start" }}>
           <div className="card">
             <div className="card-header"><div className="card-title">Standard vaccination schedule</div></div>
-            <div className="table-wrap" style={{ margin: "0 0 0 0" }}>
+            <div className="table-wrap">
               <table className="table">
                 <thead><tr><th>Day</th><th>Vaccine</th><th>Route</th><th>Types</th></tr></thead>
                 <tbody>
-                  {STANDARD_SCHEDULE.map(s => (
+                  {STANDARD_SCHEDULE.map((s) => (
                     <tr key={s.day}>
                       <td className="mono" style={{ fontWeight: 600, fontSize: 12 }}>D+{s.day}</td>
                       <td style={{ fontWeight: 500, fontSize: 13 }}>{s.vaccine}</td>
                       <td className="muted" style={{ fontSize: 12 }}>{s.route}</td>
                       <td>
                         <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
-                          {s.types.map(t => <span key={t} className={`badge ${t === "broiler" ? "accent" : t === "layer" ? "success" : "info"}`} style={{ fontSize: 10 }}>{t}</span>)}
+                          {s.types.map((t) => <span key={t} className={`badge ${t === "broiler" ? "accent" : t === "layer" ? "success" : "info"}`} style={{ fontSize: 10 }}>{t}</span>)}
                         </div>
                       </td>
                     </tr>
@@ -289,7 +329,7 @@ export default function VaccinationsScreen() {
           <div className="card">
             <div className="card-header"><div className="card-title">Vaccine inventory</div></div>
             <div style={{ padding: "0 16px 16px" }} className="stack-2">
-              {VACCINE_INVENTORY.map(v => (
+              {VACCINE_INVENTORY.map((v) => (
                 <div key={v.name} className="row" style={{ padding: "8px 10px", background: "var(--bg-sunken)", borderRadius: 8, gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{v.name}</div>
@@ -307,7 +347,13 @@ export default function VaccinationsScreen() {
         </div>
       )}
 
-      {logEntry && <LogDoseModal vaxEntry={logEntry} onClose={() => setLogEntry(null)} />}
+      {logEntry && (
+        <LogDoseModal
+          vaxEntry={logEntry}
+          onClose={() => setLogEntry(null)}
+          onSuccess={() => startTransition(() => refresh())}
+        />
+      )}
     </div>
   );
 }

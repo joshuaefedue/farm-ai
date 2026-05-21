@@ -219,6 +219,51 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["alerts"]["Insert"]>;
         Relationships: [];
       };
+      inventory_items: {
+        Row: {
+          id: string;
+          org_id: string;
+          name: string;
+          category: string | null;
+          unit: string | null;
+          quantity: number;
+          reorder_level: number | null;
+          unit_cost: number | null;
+          supplier: string | null;
+          location: string | null;
+          expiry_date: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          org_id: string;
+          name: string;
+          category?: string | null;
+          unit?: string | null;
+          quantity?: number;
+          reorder_level?: number | null;
+          unit_cost?: number | null;
+          supplier?: string | null;
+          location?: string | null;
+          expiry_date?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["inventory_items"]["Insert"]>;
+        Relationships: [];
+      };
+      notification_settings: {
+        Row: {
+          id: string;
+          org_id: string;
+          settings: Json;
+          updated_at: string;
+        };
+        Insert: {
+          org_id: string;
+          settings?: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["notification_settings"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -243,6 +288,8 @@ export type House          = Database["public"]["Tables"]["houses"]["Row"];
 export type Batch          = Database["public"]["Tables"]["batches"]["Row"];
 export type Order          = Database["public"]["Tables"]["orders"]["Row"];
 export type Vaccination    = Database["public"]["Tables"]["vaccinations"]["Row"];
-export type BatchLog       = Database["public"]["Tables"]["batch_logs"]["Row"];
-export type AlertRow       = Database["public"]["Tables"]["alerts"]["Row"];
-export type UserRole       = OrgMember["role"];
+export type BatchLog            = Database["public"]["Tables"]["batch_logs"]["Row"];
+export type AlertRow            = Database["public"]["Tables"]["alerts"]["Row"];
+export type InventoryItemRow    = Database["public"]["Tables"]["inventory_items"]["Row"];
+export type NotificationSetting = Database["public"]["Tables"]["notification_settings"]["Row"];
+export type UserRole            = OrgMember["role"];

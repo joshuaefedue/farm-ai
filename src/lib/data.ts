@@ -55,7 +55,7 @@ export const ALERTS: Alert[] = [
   { id: 5, level: "success", title: "PB-2026-009 sold — final reconciliation", meta: "Net profit ₦4.82M · ROI 18.4%", time: "Yesterday", icon: "Check" },
 ];
 
-export type OrderStatus = "delivered" | "out_for_delivery" | "pending" | "confirmed";
+export type OrderStatus = "delivered" | "out_for_delivery" | "pending" | "confirmed" | "cancelled";
 export type PaymentStatus = "paid" | "invoiced" | "unpaid";
 
 export interface Order {

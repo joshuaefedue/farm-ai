@@ -1,21 +1,59 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition } from "react";
 import { Icons } from "@/components/icons";
-import { BATCHES, HOUSES, Batch } from "@/lib/data";
+import { BATCHES, Batch } from "@/lib/data";
 import { naira, num } from "@/lib/utils";
 import { TODAY } from "@/lib/data";
+import { useBatches } from "@/hooks/useBatches";
+import { useHouses } from "@/hooks/useHouses";
+import { useOrg } from "@/contexts/OrgContext";
+import { createBatch } from "@/app/actions/batches";
 
 type SortCol = keyof Batch | "age";
 
-function CreateBatchModal({ onClose }: { onClose: () => void }) {
+function CreateBatchModal({
+  onClose,
+  orgId,
+  onSuccess,
+  houses,
+}: {
+  onClose: () => void;
+  orgId: string | null;
+  onSuccess: () => void;
+  houses: { id: string; name: string; type: string | null; capacity: number | null }[];
+}) {
   const [step, setStep] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [data, setData] = useState({
-    type: "broiler", breed: "Cobb 500", qty: 5000, house: "House 6",
-    arrival: "2026-05-15", supplier: "Amo Byng, Awe", costPerBird: 850,
+    type: "broiler", breed: "Cobb 500", qty: 5000, house: "",
+    arrival: new Date().toISOString().slice(0, 10),
+    supplier: "Amo Byng, Awe", costPerBird: 850,
     feedStarter: "Broiler Starter 22%", vaccineProgram: "Standard broiler · 6 doses",
     autoSchedule: true, notifyWhatsApp: true,
   });
   const set = (k: string, v: unknown) => setData((d) => ({ ...d, [k]: v }));
+
+  async function handleCreate() {
+    if (!orgId) { setErrMsg("No farm selected"); return; }
+    setSaving(true);
+    setErrMsg(null);
+    const res = await createBatch({
+      org_id: orgId,
+      type: data.type as "broiler" | "layer" | "dual",
+      breed: data.breed,
+      start_count: data.qty,
+      supplier: data.supplier,
+      cost_per_bird: data.costPerBird,
+      house_name: data.house || undefined,
+      arrival_date: data.arrival,
+      auto_schedule: data.autoSchedule,
+    });
+    setSaving(false);
+    if (!res.success) { setErrMsg(res.error ?? "Failed to create batch"); return; }
+    onSuccess();
+    onClose();
+  }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -28,6 +66,7 @@ function CreateBatchModal({ onClose }: { onClose: () => void }) {
           <button className="btn ghost icon-only" onClick={onClose}><Icons.X size={14} /></button>
         </div>
         <div className="modal-body">
+          {errMsg && <div className="banner danger" style={{ marginBottom: 12 }}><Icons.Alert size={14} /> {errMsg}</div>}
           {step === 1 && (
             <>
               <div className="form-row">
@@ -73,11 +112,9 @@ function CreateBatchModal({ onClose }: { onClose: () => void }) {
                 <div className="form-row">
                   <label>House</label>
                   <select className="select" value={data.house} onChange={(e) => set("house", e.target.value)}>
-                    {HOUSES.filter((h) => !h.batch).map((h) => (
-                      <option key={h.id}>{h.id} — {h.type} (cap. {h.capacity.toLocaleString()})</option>
-                    ))}
-                    {HOUSES.filter((h) => h.batch).map((h) => (
-                      <option key={h.id} disabled>{h.id} — occupied</option>
+                    <option value="">— select house —</option>
+                    {houses.map((h) => (
+                      <option key={h.id} value={h.name}>{h.name}{h.capacity ? ` (cap. ${h.capacity.toLocaleString()})` : ""}</option>
                     ))}
                   </select>
                 </div>
@@ -115,13 +152,13 @@ function CreateBatchModal({ onClose }: { onClose: () => void }) {
             <>
               <div className="banner success">
                 <div className="icon-dot success"><Icons.Check size={12} /></div>
-                <div>Ready to create. Acre will generate <span className="mono">17</span> scheduled events for this batch lifecycle.</div>
+                <div>Ready to create.{data.autoSchedule ? " Acre will auto-schedule vaccinations for this batch." : ""}</div>
               </div>
               <div className="stack-3" style={{ marginTop: 4 }}>
                 {[
                   { k: "Breed", v: `${data.breed} · ${data.type}` },
                   { k: "Quantity", v: `${num(data.qty)} chicks` },
-                  { k: "House", v: data.house },
+                  { k: "House", v: data.house || "—" },
                   { k: "Arrival", v: data.arrival },
                   { k: "Source", v: data.supplier },
                   { k: "Cost per chick", v: naira(data.costPerBird) },
@@ -142,12 +179,14 @@ function CreateBatchModal({ onClose }: { onClose: () => void }) {
           <span className="muted" style={{ flex: 1, fontSize: 12 }}>
             {step === 1 && "Tip: switch to layer to load the layer vaccine schedule."}
             {step === 2 && data.autoSchedule && "Schedule will include Marek (D1), Gumboro (D9, D14), Newcastle (D7, D21)."}
-            {step === 3 && "New batch ID will be PB-2026-015."}
+            {step === 3 && "Batch ID will be generated automatically."}
           </span>
-          {step > 1 && <button className="btn" onClick={() => setStep(step - 1)}>Back</button>}
+          {step > 1 && <button className="btn" onClick={() => setStep(step - 1)} disabled={saving}>Back</button>}
           {step < 3
             ? <button className="btn primary" onClick={() => setStep(step + 1)}>Continue</button>
-            : <button className="btn accent" onClick={onClose}><Icons.Check size={14} /> Create batch</button>}
+            : <button className="btn accent" onClick={handleCreate} disabled={saving}>
+                {saving ? "Creating…" : <><Icons.Check size={14} /> Create batch</>}
+              </button>}
         </div>
       </div>
     </div>
@@ -155,14 +194,21 @@ function CreateBatchModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function BatchesScreen({ setRoute }: { setRoute: (r: string) => void }) {
+  const { org } = useOrg();
+  const { batches, isLoading, refresh } = useBatches();
+  const { houses } = useHouses();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "arrival", dir: "desc" });
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [, startTransition] = useTransition();
+
+  // Use real data when available, fallback to mock
+  const allBatches = batches.length > 0 ? batches : BATCHES;
 
   const filtered = useMemo(() => {
-    let list = BATCHES.slice();
+    let list = allBatches.slice();
     if (filter === "broiler") list = list.filter((b) => b.type === "broiler");
     if (filter === "layer") list = list.filter((b) => b.type === "layer");
     if (filter === "dual") list = list.filter((b) => b.type === "dual");
@@ -173,20 +219,15 @@ export default function BatchesScreen({ setRoute }: { setRoute: (r: string) => v
       list = list.filter((b) => b.id.toLowerCase().includes(s) || b.breed.toLowerCase().includes(s) || b.house.toLowerCase().includes(s));
     }
     list.sort((a, b) => {
-      let av: unknown = sort.col === "age" ? a.arrival : a[sort.col as keyof Batch];
-      let bv: unknown = sort.col === "age" ? b.arrival : b[sort.col as keyof Batch];
+      const av: unknown = sort.col === "age" ? a.arrival : a[sort.col as keyof Batch];
+      const bv: unknown = sort.col === "age" ? b.arrival : b[sort.col as keyof Batch];
       const cmp = (av as number) > (bv as number) ? 1 : (av as number) < (bv as number) ? -1 : 0;
       return sort.dir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [filter, search, sort]);
+  }, [filter, search, sort, allBatches]);
 
-  const toggle = (id: string) => setSelected((s) => {
-    const n = new Set(s);
-    n.has(id) ? n.delete(id) : n.add(id);
-    return n;
-  });
-
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const sortBy = (col: SortCol) => setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "desc" });
 
   const SortHead = ({ col, children, num: isNum }: { col: SortCol; children: React.ReactNode; num?: boolean }) => (
@@ -197,15 +238,18 @@ export default function BatchesScreen({ setRoute }: { setRoute: (r: string) => v
     </th>
   );
 
-  const total = BATCHES.length;
-  const active = BATCHES.filter((b) => b.status !== "sold").length;
+  const total = allBatches.length;
+  const active = allBatches.filter((b) => b.status !== "sold").length;
+  const liveBirds = allBatches.filter((b) => b.status !== "sold").reduce((s, b) => s + b.currentCount, 0);
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Poultry batches</h1>
-          <div className="page-sub">{active} active · {total - active} closed · 20,224 live birds across 5 houses</div>
+          <div className="page-sub">
+            {isLoading ? "Loading…" : `${active} active · ${total - active} closed · ${liveBirds.toLocaleString()} live birds`}
+          </div>
         </div>
         <div className="page-actions">
           <button className="btn"><Icons.Download size={14} /> Export CSV</button>
@@ -260,7 +304,11 @@ export default function BatchesScreen({ setRoute }: { setRoute: (r: string) => v
             </tr>
           </thead>
           <tbody>
-            {filtered.map((b) => {
+            {isLoading ? (
+              <tr><td colSpan={13} style={{ textAlign: "center", padding: 24, color: "var(--fg-muted)" }}>Loading batches…</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={13} style={{ textAlign: "center", padding: 24, color: "var(--fg-muted)" }}>No batches found</td></tr>
+            ) : filtered.map((b) => {
               const age = Math.floor((TODAY.getTime() - b.arrival.getTime()) / 86400000);
               const aliveFrac = b.startCount ? b.currentCount / b.startCount : 0;
               return (
@@ -317,7 +365,14 @@ export default function BatchesScreen({ setRoute }: { setRoute: (r: string) => v
         </div>
       </div>
 
-      {showCreate && <CreateBatchModal onClose={() => setShowCreate(false)} />}
+      {showCreate && (
+        <CreateBatchModal
+          onClose={() => setShowCreate(false)}
+          orgId={org?.id ?? null}
+          onSuccess={() => startTransition(() => refresh())}
+          houses={houses}
+        />
+      )}
     </div>
   );
 }
