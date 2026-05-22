@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { completeOnboarding } from "@/app/actions/onboarding";
@@ -15,25 +15,33 @@ const STATES = [
   "Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba","Yobe","Zamfara",
 ];
 
+const PENDING_KEY = "acre_pending_onboarding";
+
 type Step = 1 | 2 | 3;
 
 export default function OnboardingPage() {
-  const router = useRouter();
+  const router   = useRouter();
+  const supabase = createClient();
 
   const [step, setStep]         = useState<Step>(1);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [seedDemo, setSeedDemo] = useState(true);
+  const [emailSent, setEmailSent] = useState(false);
 
   const [form, setForm] = useState({
-    farmName:    "",
-    state:       "Ogun",
-    lga:         "",
-    address:     "",
-    ownerPhone:  "",
-    waNumber:    "",
+    farmName:     "",
+    state:        "Ogun",
+    lga:          "",
+    address:      "",
+    ownerPhone:   "",
+    waNumber:     "",
     birdCapacity: "5000",
-    regNumber:   "",
+    regNumber:    "",
+    // Account fields (step 3)
+    fullName:     "",
+    email:        "",
+    password:     "",
   });
 
   function set(k: keyof typeof form, v: string) {
@@ -44,53 +52,142 @@ export default function OnboardingPage() {
     return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   }
 
+  // ── Auto-complete if user comes back from email confirmation ──────────────
+  useEffect(() => {
+    const finishPending = async () => {
+      const pendingRaw = localStorage.getItem(PENDING_KEY);
+      if (!pendingRaw) return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+
+      // We have a session + pending data → complete onboarding
+      try {
+        const pending = JSON.parse(pendingRaw);
+        const res = await completeOnboarding({
+          userId: session.user.id,
+          ownerName: session.user.user_metadata?.full_name ?? undefined,
+          ...pending,
+        });
+        if (res.success) {
+          localStorage.removeItem(PENDING_KEY);
+          router.push("/");
+          router.refresh();
+        }
+      } catch {
+        // If it fails, let the user try again manually
+        localStorage.removeItem(PENDING_KEY);
+      }
+    };
+    finishPending();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Submit: sign up → create org → redirect ──────────────────────────────
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!form.farmName.trim()) { setError("Farm name is required"); return; }
+    if (!form.fullName.trim()) { setError("Your name is required"); return; }
+    if (!form.email.trim()) { setError("Email is required"); return; }
+    if (form.password.length < 8) { setError("Password must be at least 8 characters"); return; }
+
     setLoading(true);
     setError(null);
 
-    try {
-      // Get user from browser session (localStorage — always works after sign-in)
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        setError("Session not found — please sign in again.");
-        setLoading(false);
-        return;
-      }
+    // 1. Build the onboarding payload (everything except auth fields)
+    const farmData = {
+      farmName: form.farmName.trim(),
+      slug: slugify(form.farmName.trim()) + "-" + Math.random().toString(36).slice(2, 6),
+      state: form.state || undefined,
+      lga: form.lga || undefined,
+      address: form.address || undefined,
+      ownerPhone: form.ownerPhone || undefined,
+      waNumber: form.waNumber || undefined,
+      birdCapacity: form.birdCapacity ? parseInt(form.birdCapacity) : undefined,
+      regNumber: form.regNumber || undefined,
+      seedDemo,
+    };
 
-      const res = await completeOnboarding({
-        userId: session.user.id,
-        ownerName: session.user.user_metadata?.full_name ?? undefined,
-        farmName: form.farmName.trim(),
-        slug: slugify(form.farmName.trim()) + "-" + Math.random().toString(36).slice(2, 6),
-        state: form.state || undefined,
-        lga: form.lga || undefined,
-        address: form.address || undefined,
-        ownerPhone: form.ownerPhone || undefined,
-        waNumber: form.waNumber || undefined,
-        birdCapacity: form.birdCapacity ? parseInt(form.birdCapacity) : undefined,
-        regNumber: form.regNumber || undefined,
-        seedDemo,
-      });
+    // 2. Sign up
+    const { data: authData, error: signUpErr } = await supabase.auth.signUp({
+      email: form.email.trim(),
+      password: form.password,
+      options: {
+        data: { full_name: form.fullName.trim() },
+        emailRedirectTo: `${location.origin}/auth/callback?next=/onboarding`,
+      },
+    });
 
-      if (!res.success) {
-        setError(res.error ?? "Failed to create farm");
-        setLoading(false);
-        return;
-      }
-
-      router.push("/");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+    if (signUpErr) {
+      setError(signUpErr.message);
       setLoading(false);
+      return;
+    }
+
+    // 3. Check if we got a session immediately (auto-confirm enabled)
+    const session = authData.session;
+    const user    = session?.user ?? authData.user;
+
+    if (session && user) {
+      // Auto-confirmed — create org right away
+      try {
+        const res = await completeOnboarding({
+          userId: user.id,
+          ownerName: form.fullName.trim(),
+          ...farmData,
+        });
+
+        if (!res.success) {
+          setError(res.error ?? "Failed to create farm");
+          setLoading(false);
+          return;
+        }
+
+        router.push("/");
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+        setLoading(false);
+      }
+    } else {
+      // Email confirmation required — save farm data for later
+      localStorage.setItem(PENDING_KEY, JSON.stringify(farmData));
+      setLoading(false);
+      setEmailSent(true);
     }
   }
 
-  const STEPS = ["Your farm", "Location", "Review"];
+  const STEPS = ["Your farm", "Location", "Create account"];
 
+  // ── Email confirmation waiting screen ─────────────────────────────────────
+  if (emailSent) {
+    return (
+      <div style={{ width: "100%", maxWidth: 520 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10, background: "var(--accent)",
+            display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18,
+          }}>A</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Acre Farm OS</div>
+            <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>Almost there!</div>
+          </div>
+        </div>
+        <div className="card" style={{ padding: 32, textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📬</div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 8px" }}>Check your email</h2>
+          <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: "0 0 16px", lineHeight: 1.5 }}>
+            We sent a confirmation link to <strong>{form.email}</strong>.<br />
+            Click the link to finish setting up <strong>{form.farmName}</strong>.
+          </p>
+          <p style={{ fontSize: 12, color: "var(--fg-faint)", margin: 0 }}>
+            Your farm details are saved — everything will be created automatically once you confirm.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Wizard ────────────────────────────────────────────────────────────────
   return (
     <div style={{ width: "100%", maxWidth: 520 }}>
       {/* Brand */}
@@ -101,7 +198,7 @@ export default function OnboardingPage() {
         }}>A</div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Acre Farm OS</div>
-          <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>Let's set up your farm</div>
+          <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>Let&apos;s set up your farm</div>
         </div>
       </div>
 
@@ -207,43 +304,73 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Step 3: Review */}
+          {/* Step 3: Create account + review */}
           {step === 3 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 4px" }}>Almost there!</h2>
-                <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>Review your farm details before we create your workspace</p>
+                <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 4px" }}>Create your account</h2>
+                <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>One last step — set up your login to secure your farm</p>
               </div>
+
+              {/* Account fields */}
+              <div className="form-grid">
+                <div className="form-row" style={{ gridColumn: "span 2" }}>
+                  <label>Full Name *</label>
+                  <input className="input" value={form.fullName} onChange={(e) => set("fullName", e.target.value)}
+                    placeholder="Chukwuemeka Adigwe" required autoFocus />
+                </div>
+                <div className="form-row" style={{ gridColumn: "span 2" }}>
+                  <label>Email *</label>
+                  <input className="input" type="email" value={form.email} onChange={(e) => set("email", e.target.value)}
+                    placeholder="you@farm.ng" required autoComplete="email" />
+                </div>
+                <div className="form-row" style={{ gridColumn: "span 2" }}>
+                  <label>Password *</label>
+                  <input className="input" type="password" value={form.password} onChange={(e) => set("password", e.target.value)}
+                    placeholder="Min. 8 characters" required minLength={8} autoComplete="new-password" />
+                </div>
+              </div>
+
+              {/* Review summary */}
               <div style={{ background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)", padding: 14, fontSize: 13 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-muted)", marginBottom: 8 }}>Farm summary</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
                   {[
-                    ["Farm Name", form.farmName],
-                    ["State / LGA", `${form.state}${form.lga ? ` · ${form.lga}` : ""}`],
-                    ["Bird Capacity", form.birdCapacity ? parseInt(form.birdCapacity).toLocaleString() : "—"],
-                    ["WA Number", form.waNumber || "—"],
+                    ["Farm", form.farmName || "—"],
+                    ["Location", `${form.state}${form.lga ? ` · ${form.lga}` : ""}`],
+                    ["Capacity", form.birdCapacity ? parseInt(form.birdCapacity).toLocaleString() + " birds" : "—"],
+                    ["WA", form.waNumber || "—"],
                   ].map(([label, val]) => (
                     <div key={label}>
-                      <div style={{ fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-muted)" }}>{label}</div>
-                      <div style={{ fontWeight: 500, marginTop: 2 }}>{val}</div>
+                      <div style={{ fontSize: 10, fontWeight: 500, color: "var(--fg-faint)" }}>{label}</div>
+                      <div style={{ fontWeight: 500, marginTop: 1 }}>{val}</div>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Seed demo toggle */}
               <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: seedDemo ? "var(--accent-subtle)" : "var(--bg-card)" }}>
                 <input type="checkbox" checked={seedDemo} onChange={(e) => setSeedDemo(e.target.checked)} style={{ marginTop: 2, accentColor: "var(--accent)" }} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>Load demo data</div>
                   <div style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 2 }}>
-                    Pre-fill your farm with sample batches, orders and vaccinations so you can explore the ERP immediately. You can delete it later.
+                    Pre-fill with sample batches, orders and vaccinations so you can explore immediately.
                   </div>
                 </div>
               </label>
+
+              <p style={{ fontSize: 11, color: "var(--fg-faint)", margin: "0", textAlign: "center" }}>
+                Already have an account?{" "}
+                <a href="/login" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>Sign in</a>
+              </p>
             </div>
           )}
 
+          {/* Navigation buttons */}
           <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
             {step > 1 && (
-              <button type="button" className="btn" onClick={() => setStep((s) => (s - 1) as Step)}>
+              <button type="button" className="btn" onClick={() => { setError(null); setStep((s) => (s - 1) as Step); }}>
                 Back
               </button>
             )}
@@ -268,7 +395,7 @@ export default function OnboardingPage() {
                 disabled={loading}
                 style={{ paddingLeft: 20, paddingRight: 20 }}
               >
-                {loading ? "Creating farm…" : "🌿 Create my farm"}
+                {loading ? "Creating farm..." : "Create my farm"}
               </button>
             )}
           </div>
