@@ -107,8 +107,8 @@ export default function OnboardingPage() {
       seedDemo,
     };
 
-    // 2. Sign up — store farm data in user metadata so it survives email
-    //    confirmation even if the link opens in a different tab/browser.
+    // 2. Try signing up — store farm data in user metadata so it survives
+    //    email confirmation even if the link opens in a different tab/browser.
     const { data: authData, error: signUpErr } = await supabase.auth.signUp({
       email: form.email.trim(),
       password: form.password,
@@ -124,12 +124,31 @@ export default function OnboardingPage() {
       return;
     }
 
-    // 3. Check if we got a session immediately (auto-confirm enabled)
-    const session = authData.session;
-    const user    = session?.user ?? authData.user;
+    let session = authData.session;
+    let user    = session?.user ?? authData.user;
 
+    // 3. If user already exists (confirmed before), signUp silently returns
+    //    a user with empty identities and no session. Fall back to sign in.
+    const alreadyExists = user && (!user.identities || user.identities.length === 0);
+
+    if (alreadyExists || (!session && !user)) {
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+        email: form.email.trim(),
+        password: form.password,
+      });
+
+      if (signInErr) {
+        setError(signInErr.message);
+        setLoading(false);
+        return;
+      }
+
+      session = signInData.session;
+      user    = signInData.user;
+    }
+
+    // 4. If we have a session → create org immediately
     if (session && user) {
-      // Auto-confirmed — create org right away
       try {
         const res = await completeOnboarding({
           userId: user.id,
@@ -150,7 +169,7 @@ export default function OnboardingPage() {
         setLoading(false);
       }
     } else {
-      // Email confirmation required — save farm data for later
+      // New user, email confirmation required — save farm data for later
       localStorage.setItem(PENDING_KEY, JSON.stringify(farmData));
       setLoading(false);
       setEmailSent(true);
