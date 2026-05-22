@@ -107,13 +107,14 @@ export default function OnboardingPage() {
       seedDemo,
     };
 
-    // 2. Sign up
+    // 2. Sign up — store farm data in user metadata so it survives email
+    //    confirmation even if the link opens in a different tab/browser.
     const { data: authData, error: signUpErr } = await supabase.auth.signUp({
       email: form.email.trim(),
       password: form.password,
       options: {
-        data: { full_name: form.fullName.trim() },
-        emailRedirectTo: `${location.origin}/auth/callback?next=/onboarding`,
+        data: { full_name: form.fullName.trim(), pending_farm: farmData },
+        emailRedirectTo: `${location.origin}/auth/callback?next=/`,
       },
     });
 

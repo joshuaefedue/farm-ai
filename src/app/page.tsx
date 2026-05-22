@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { completeOnboarding } from "@/app/actions/onboarding";
 import AppShell from "@/components/layout/AppShell";
 
 export default async function Home() {
@@ -16,7 +17,7 @@ export default async function Home() {
     redirect("/landing");
   }
 
-  // Check if user belongs to at least one org — if not, send to onboarding
+  // Check if user belongs to at least one org
   const { data: membership } = await supabase
     .from("organization_members")
     .select("id")
@@ -26,6 +27,25 @@ export default async function Home() {
     .maybeSingle();
 
   if (!membership) {
+    // User has no org — check if they completed the onboarding form before
+    // email confirmation (farm data stored in user metadata during signUp).
+    const pendingFarm = user.user_metadata?.pending_farm;
+
+    if (pendingFarm) {
+      // Auto-complete onboarding with the saved farm data
+      const res = await completeOnboarding({
+        userId: user.id,
+        ownerName: user.user_metadata?.full_name ?? undefined,
+        ...pendingFarm,
+      });
+
+      if (res.success) {
+        // Farm created — reload so the dashboard picks up the new org
+        redirect("/");
+      }
+    }
+
+    // No pending data → send to onboarding wizard
     redirect("/onboarding");
   }
 
