@@ -306,6 +306,45 @@ export const Icons = {
       <path d="M9 21h6" />
     </Icon>
   ),
+  Globe: (p: IconProps) => (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+    </Icon>
+  ),
+  Link: (p: IconProps) => (
+    <Icon {...p}>
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.7" />
+    </Icon>
+  ),
+  Copy: (p: IconProps) => (
+    <Icon {...p}>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </Icon>
+  ),
+  ExternalLink: (p: IconProps) => (
+    <Icon {...p}>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14L21 3" />
+    </Icon>
+  ),
+  Shield: (p: IconProps) => (
+    <Icon {...p}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+    </Icon>
+  ),
+  Refresh: (p: IconProps) => (
+    <Icon {...p}>
+      <path d="M1 4v6h6" />
+      <path d="M23 20v-6h-6" />
+      <path d="M20.5 9A9 9 0 0 0 5.6 5.6L1 10" />
+      <path d="M3.5 15a9 9 0 0 0 14.9 3.4L23 14" />
+    </Icon>
+  ),
 };
 
 export type IconName = keyof typeof Icons;

@@ -3,7 +3,13 @@ import { useState, useTransition, useEffect } from "react";
 import { Icons } from "@/components/icons";
 import { naira } from "@/lib/utils";
 import { useOrg } from "@/contexts/OrgContext";
-import { updateOrgProfile, updateNotificationSettings } from "@/app/actions/settings";
+import {
+  updateOrgProfile,
+  updateNotificationSettings,
+  saveCustomDomain,
+  verifyCustomDomain,
+  removeCustomDomain,
+} from "@/app/actions/settings";
 import { inviteMember } from "@/app/actions/team";
 
 const SUPABASE_CONFIGURED =
@@ -205,7 +211,17 @@ export default function SettingsScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const { org } = useOrg();
+  const { org, isOwner } = useOrg();
+
+  // Custom domain state
+  const [domainInput, setDomainInput] = useState("");
+  const [domainSaved, setDomainSaved] = useState<string | null>(null);
+  const [domainVerified, setDomainVerified] = useState(false);
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [domainSuccess, setDomainSuccess] = useState<string | null>(null);
+  const [domainPending, startDomainTransition] = useTransition();
+  const [verifyPending, startVerifyTransition] = useTransition();
+  const [copied, setCopied] = useState(false);
 
   // Farm profile state — defaults used when org not loaded
   const [profile, setProfile] = useState({
@@ -225,7 +241,7 @@ export default function SettingsScreen() {
     website:     "adigwefarms.ng",
   });
 
-  // Sync profile from DB org when it loads
+  // Sync profile + domain from DB org when it loads
   useEffect(() => {
     if (!org) return;
     setProfile((prev) => ({
@@ -242,6 +258,10 @@ export default function SettingsScreen() {
       size:        org.size_ha != null ? String(org.size_ha) : prev.size,
       capacity:    org.bird_capacity != null ? String(org.bird_capacity) : prev.capacity,
     }));
+    // Sync domain fields
+    setDomainSaved(org.custom_domain ?? null);
+    setDomainInput(org.custom_domain ?? "");
+    setDomainVerified(org.domain_verified ?? false);
   }, [org?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // System prefs state
@@ -445,6 +465,304 @@ export default function SettingsScreen() {
                 <span className="muted" style={{ fontSize: 11 }}>Used for all outbound WhatsApp alerts and customer messages</span>
               </div>
             </div>
+          </div>
+
+          {/* ── Custom Domain Card ──────────────────────────────────────────── */}
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: domainVerified ? "var(--success)" : "var(--bg-subtle)",
+                color: domainVerified ? "white" : "var(--fg-muted)",
+                display: "grid", placeItems: "center", flexShrink: 0,
+              }}>
+                <Icons.Globe size={16} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>Custom Domain</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Connect your own domain to your farm storefront
+                </div>
+              </div>
+              <div className="spacer" />
+              {domainSaved && domainVerified && (
+                <span className="badge success" style={{ fontSize: 11 }}>
+                  <Icons.Shield size={10} /> Verified
+                </span>
+              )}
+              {domainSaved && !domainVerified && (
+                <span className="badge warning" style={{ fontSize: 11 }}>
+                  <Icons.Alert size={10} /> Pending verification
+                </span>
+              )}
+            </div>
+            <div className="divider" style={{ marginBottom: 14 }} />
+
+            {!isOwner ? (
+              <div className="banner" style={{ fontSize: 12 }}>
+                <Icons.Info size={13} />
+                <span>Only the farm owner can manage custom domains.</span>
+              </div>
+            ) : !domainSaved ? (
+              /* ── No domain configured — show input to add one ── */
+              <>
+                <div style={{ fontSize: 13, marginBottom: 10, lineHeight: 1.6 }}>
+                  Point your own domain to your farm&apos;s public storefront and marketplace page.
+                  Customers will see your brand instead of an Acre URL.
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        className="input"
+                        placeholder="e.g. store.yourfarm.com"
+                        value={domainInput}
+                        onChange={(e) => { setDomainInput(e.target.value); setDomainError(null); setDomainSuccess(null); }}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        className="btn accent"
+                        disabled={domainPending || !domainInput.trim()}
+                        onClick={() => {
+                          if (!SUPABASE_CONFIGURED || !org) {
+                            setDomainSaved(domainInput.trim().toLowerCase());
+                            setDomainSuccess("Domain saved — follow the steps below to verify.");
+                            return;
+                          }
+                          setDomainError(null);
+                          startDomainTransition(async () => {
+                            const res = await saveCustomDomain(org.id, domainInput);
+                            if (!res.success) { setDomainError(res.error ?? "Failed to save domain"); return; }
+                            setDomainSaved(res.domain ?? domainInput.trim().toLowerCase());
+                            setDomainVerified(false);
+                            setDomainSuccess("Domain saved — follow the steps below to verify ownership.");
+                          });
+                        }}
+                      >
+                        <Icons.Link size={12} />
+                        {domainPending ? "Saving…" : "Connect Domain"}
+                      </button>
+                    </div>
+                    <span className="muted" style={{ fontSize: 11, marginTop: 4, display: "block" }}>
+                      Enter a domain or subdomain you own (e.g. store.yourfarm.com or yourfarm.ng)
+                    </span>
+                  </div>
+                </div>
+                {domainError && (
+                  <div className="banner danger" style={{ marginTop: 10 }}>
+                    <Icons.Alert size={12} /><span>{domainError}</span>
+                  </div>
+                )}
+              </>
+            ) : !domainVerified ? (
+              /* ── Domain saved but not verified — show DNS instructions ── */
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    <Icons.Globe size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                    {domainSaved}
+                  </span>
+                  <button className="btn sm danger" style={{ marginLeft: "auto" }}
+                    disabled={domainPending}
+                    onClick={() => {
+                      if (!SUPABASE_CONFIGURED || !org) {
+                        setDomainSaved(null); setDomainInput(""); setDomainVerified(false);
+                        setDomainError(null); setDomainSuccess(null);
+                        return;
+                      }
+                      startDomainTransition(async () => {
+                        const res = await removeCustomDomain(org.id);
+                        if (res.success) {
+                          setDomainSaved(null); setDomainInput(""); setDomainVerified(false);
+                          setDomainError(null); setDomainSuccess(null);
+                        }
+                      });
+                    }}
+                  >
+                    {domainPending ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+
+                <div style={{
+                  background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)",
+                  padding: 14, marginBottom: 14,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-muted)" }}>
+                    Step 1 — Add a DNS TXT record
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10 }}>
+                    Go to your domain registrar (e.g. Namecheap, GoDaddy, Cloudflare) and add a <strong>TXT record</strong> to verify ownership:
+                  </div>
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px",
+                    fontSize: 12, background: "var(--bg-card)", borderRadius: 6,
+                    padding: "10px 14px", border: "1px solid var(--border)",
+                  }}>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Type</span>
+                    <span style={{ fontFamily: "monospace" }}>TXT</span>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Host / Name</span>
+                    <span style={{ fontFamily: "monospace" }}>@</span>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Value</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <code style={{
+                        background: "var(--bg-subtle)", padding: "2px 8px",
+                        borderRadius: 4, fontSize: 12, fontFamily: "monospace",
+                        wordBreak: "break-all",
+                      }}>
+                        acre-verify={org?.id ?? "your-org-id"}
+                      </code>
+                      <button
+                        className="btn sm ghost icon-only"
+                        title="Copy to clipboard"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`acre-verify=${org?.id ?? ""}`);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                      >
+                        {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)",
+                  padding: 14, marginBottom: 14,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-muted)" }}>
+                    Step 2 — Add a CNAME record
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10 }}>
+                    Point your domain to Acre by adding a <strong>CNAME record</strong>:
+                  </div>
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px",
+                    fontSize: 12, background: "var(--bg-card)", borderRadius: 6,
+                    padding: "10px 14px", border: "1px solid var(--border)",
+                  }}>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Type</span>
+                    <span style={{ fontFamily: "monospace" }}>CNAME</span>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Host / Name</span>
+                    <span style={{ fontFamily: "monospace" }}>
+                      {domainSaved.startsWith("store.") || domainSaved.startsWith("shop.") || domainSaved.startsWith("www.")
+                        ? domainSaved.split(".")[0]
+                        : "@"}
+                    </span>
+                    <span style={{ fontWeight: 600, color: "var(--fg-muted)" }}>Target</span>
+                    <span style={{ fontFamily: "monospace" }}>stores.acrefarm.ng</span>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)",
+                  padding: 14, marginBottom: 14,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-muted)" }}>
+                    Step 3 — Verify
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10 }}>
+                    After adding both records, click the button below. DNS changes can take up to 24 hours to propagate.
+                  </div>
+                  <button
+                    className="btn accent"
+                    disabled={verifyPending}
+                    onClick={() => {
+                      setDomainError(null); setDomainSuccess(null);
+                      if (!SUPABASE_CONFIGURED || !org) {
+                        setDomainVerified(true);
+                        setDomainSuccess("Domain verified successfully!");
+                        return;
+                      }
+                      startVerifyTransition(async () => {
+                        const res = await verifyCustomDomain(org.id);
+                        if (res.verified) {
+                          setDomainVerified(true);
+                          setDomainSuccess("Domain verified successfully! Your storefront is now live.");
+                        } else {
+                          setDomainError(res.error ?? "Verification failed — TXT record not found.");
+                        }
+                      });
+                    }}
+                  >
+                    <Icons.Refresh size={12} />
+                    {verifyPending ? "Checking DNS…" : "Verify Domain"}
+                  </button>
+                </div>
+
+                {domainError && (
+                  <div className="banner danger" style={{ marginTop: 4 }}>
+                    <Icons.Alert size={12} /><span>{domainError}</span>
+                  </div>
+                )}
+                {domainSuccess && (
+                  <div className="banner success" style={{ marginTop: 4 }}>
+                    <Icons.Check size={12} /><span>{domainSuccess}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              /* ── Domain verified — show active status ── */
+              <>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "14px 16px",
+                  background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--border)", marginBottom: 12,
+                }}>
+                  <Icons.Globe size={18} style={{ color: "var(--success)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{domainSaved}</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      DNS verified · CNAME active · SSL provisioned
+                    </div>
+                  </div>
+                  <a
+                    href={`https://${domainSaved}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn sm"
+                    style={{ textDecoration: "none", flexShrink: 0 }}
+                  >
+                    <Icons.ExternalLink size={11} /> Visit
+                  </a>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn sm" onClick={() => {
+                    setDomainVerified(false);
+                    setDomainSuccess(null);
+                    setDomainError(null);
+                  }}>
+                    <Icons.Settings size={11} /> Edit DNS Settings
+                  </button>
+                  <button className="btn sm danger"
+                    disabled={domainPending}
+                    onClick={() => {
+                      if (!SUPABASE_CONFIGURED || !org) {
+                        setDomainSaved(null); setDomainInput(""); setDomainVerified(false);
+                        setDomainError(null); setDomainSuccess(null);
+                        return;
+                      }
+                      startDomainTransition(async () => {
+                        const res = await removeCustomDomain(org.id);
+                        if (res.success) {
+                          setDomainSaved(null); setDomainInput(""); setDomainVerified(false);
+                          setDomainError(null); setDomainSuccess(null);
+                        }
+                      });
+                    }}
+                  >
+                    {domainPending ? "Removing…" : "Disconnect Domain"}
+                  </button>
+                </div>
+
+                {domainSuccess && (
+                  <div className="banner success" style={{ marginTop: 10 }}>
+                    <Icons.Check size={12} /><span>{domainSuccess}</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

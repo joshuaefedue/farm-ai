@@ -20,6 +20,8 @@ export interface Database {
           bird_capacity: number | null;
           plan: string;
           logo_url: string | null;
+          custom_domain: string | null;
+          domain_verified: boolean;
           suspended: boolean;
           suspended_at: string | null;
           suspended_note: string | null;
@@ -42,6 +44,8 @@ export interface Database {
           bird_capacity?: number | null;
           plan?: string;
           logo_url?: string | null;
+          custom_domain?: string | null;
+          domain_verified?: boolean;
           suspended?: boolean;
           suspended_at?: string | null;
           suspended_note?: string | null;
@@ -62,6 +66,8 @@ export interface Database {
           bird_capacity?: number | null;
           plan?: string;
           logo_url?: string | null;
+          custom_domain?: string | null;
+          domain_verified?: boolean;
           suspended?: boolean;
           suspended_at?: string | null;
           suspended_note?: string | null;
