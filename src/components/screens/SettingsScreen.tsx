@@ -499,9 +499,25 @@ export default function SettingsScreen() {
             <div className="divider" style={{ marginBottom: 14 }} />
 
             {!isOwner ? (
-              <div className="banner" style={{ fontSize: 12 }}>
-                <Icons.Info size={13} />
-                <span>Only the farm owner can manage custom domains.</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="banner" style={{ fontSize: 12 }}>
+                  <Icons.Info size={13} />
+                  <span>Only the farm owner can manage custom domains.</span>
+                </div>
+                <a
+                  href="/store"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13,
+                    color: "var(--accent)", textDecoration: "none", fontWeight: 500,
+                    padding: "6px 12px", borderRadius: "var(--radius-sm)",
+                    background: "var(--accent-subtle)", border: "1px solid var(--accent)",
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  <Icons.ExternalLink size={12} /> View web storefront
+                </a>
               </div>
             ) : !domainSaved ? (
               /* ── No domain configured — show input to add one ── */
@@ -510,6 +526,19 @@ export default function SettingsScreen() {
                   Point your own domain to your farm&apos;s public storefront and marketplace page.
                   Customers will see your brand instead of an Acre URL.
                 </div>
+                <a
+                  href="/store"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13,
+                    color: "var(--accent)", textDecoration: "none", fontWeight: 500,
+                    marginBottom: 14, padding: "6px 12px", borderRadius: "var(--radius-sm)",
+                    background: "var(--accent-subtle)", border: "1px solid var(--accent)",
+                  }}
+                >
+                  <Icons.ExternalLink size={12} /> Preview your built-in web storefront
+                </a>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -724,6 +753,29 @@ export default function SettingsScreen() {
                     style={{ textDecoration: "none", flexShrink: 0 }}
                   >
                     <Icons.ExternalLink size={11} /> Visit
+                  </a>
+                </div>
+
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                  background: "var(--accent-subtle)", borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--accent)", marginBottom: 12,
+                }}>
+                  <Icons.Globe size={16} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>Built-in Storefront</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 1 }}>
+                      Your Acre-hosted store page is always live — even without a custom domain.
+                    </div>
+                  </div>
+                  <a
+                    href="/store"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn sm accent"
+                    style={{ textDecoration: "none", flexShrink: 0 }}
+                  >
+                    <Icons.ExternalLink size={11} /> View Store
                   </a>
                 </div>
 

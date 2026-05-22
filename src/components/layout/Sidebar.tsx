@@ -202,6 +202,12 @@ export function Sidebar({ route, setRoute }: SidebarProps) {
           <NavItem icon={<Icons.Money size={15} />} label="Finance" active={route === "finance"} onClick={() => setRoute("finance")} />
           <NavItem icon={<Icons.People size={15} />} label="HR & Payroll" count={14} active={route === "hr"} onClick={() => setRoute("hr")} />
           <NavItem icon={<Icons.Cart size={15} />} label="Marketplace" active={route === "marketplace"} onClick={() => setRoute("marketplace")} />
+          <NavItem
+            icon={<Icons.Globe size={15} />}
+            label="Web Storefront"
+            active={route === "storefront"}
+            onClick={() => window.open("/store", "_blank")}
+          />
           <NavItem icon={<Icons.Chat size={15} />} label="CRM" count={4} active={route === "crm"} onClick={() => setRoute("crm")} />
           <NavItem icon={<Icons.Truck size={15} />} label="Logistics" active={route === "logistics"} onClick={() => setRoute("logistics")} />
           <NavItem icon={<Icons.Sparkles size={15} />} label="AI & Automation" active={route === "ai"} onClick={() => setRoute("ai")} />
