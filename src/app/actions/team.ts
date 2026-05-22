@@ -2,14 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin-client";
-
-async function getUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { supabase: null, user: null };
-  return { supabase, user };
-}
+import { getAuthUser } from "@/lib/supabase/auth-helper";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 async function assertManagerOrOwner(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -34,7 +28,7 @@ export async function inviteMember(data: {
   full_name: string;
   role: string;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const allowed = await assertManagerOrOwner(supabase, data.org_id, user.id);
@@ -82,7 +76,7 @@ export async function updateMemberRole(
   org_id: string,
   role: string,
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const allowed = await assertManagerOrOwner(supabase, org_id, user.id);
@@ -101,7 +95,7 @@ export async function updateMemberRole(
 
 // ── removeMember ──────────────────────────────────────────────────────────────
 export async function removeMember(member_id: string, org_id: string) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const allowed = await assertManagerOrOwner(supabase, org_id, user.id);

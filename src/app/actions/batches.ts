@@ -2,14 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-
-// ── helpers ────────────────────────────────────────────────────────────────────
-async function getUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { supabase: null, user: null };
-  return { supabase, user };
-}
+import { getAuthUser } from "@/lib/supabase/auth-helper";
 
 async function nextBatchId(supabase: Awaited<ReturnType<typeof createClient>>, year: number) {
   const { data } = await supabase
@@ -38,7 +31,7 @@ export async function createBatch(data: {
   arrival_date?: string;
   auto_schedule?: boolean;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const year = new Date().getFullYear();
@@ -96,7 +89,7 @@ export async function updateBatch(
     avg_weight?: number;
   },
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase
@@ -112,7 +105,7 @@ export async function updateBatch(
 
 // ── closeBatch ────────────────────────────────────────────────────────────────
 export async function closeBatch(id: string, org_id: string) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase
@@ -135,7 +128,7 @@ export async function createBatchLog(data: {
   log_date?: string;
   notes?: string;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase.from("batch_logs").insert({

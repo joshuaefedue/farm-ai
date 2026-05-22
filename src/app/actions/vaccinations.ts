@@ -1,14 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-
-async function getUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { supabase: null, user: null };
-  return { supabase, user };
-}
+import { getAuthUser } from "@/lib/supabase/auth-helper";
 
 // ── markVaccinationDone ───────────────────────────────────────────────────────
 export async function markVaccinationDone(
@@ -21,7 +14,7 @@ export async function markVaccinationDone(
     notes?: string;
   },
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase
@@ -51,7 +44,7 @@ export async function createVaccination(data: {
   birds_count?: number;
   notes?: string;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase.from("vaccinations").insert({

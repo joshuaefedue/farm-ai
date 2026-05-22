@@ -1,15 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/auth-helper";
 import type { Json } from "@/lib/supabase/types";
-
-async function getUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { supabase: null, user: null };
-  return { supabase, user };
-}
 
 // ── updateOrgProfile ──────────────────────────────────────────────────────────
 export async function updateOrgProfile(
@@ -29,7 +22,7 @@ export async function updateOrgProfile(
     logo_url?: string;
   },
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   // verify user is owner of this org
@@ -61,7 +54,7 @@ export async function updateNotificationSettings(
   org_id: string,
   settings: Record<string, unknown>,
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase.from("notification_settings").upsert(
@@ -80,7 +73,7 @@ export async function updateProfile(data: {
   phone?: string;
   avatar_url?: string;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase

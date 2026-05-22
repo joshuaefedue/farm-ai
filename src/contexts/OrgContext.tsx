@@ -71,35 +71,31 @@ function OrgProviderInner({ children }: { children: React.ReactNode }) {
   const [isLoadingOrg, setLoadingOrg] = useState(true);
 
   // ── Load user + profile ───────────────────────────────────────────────────
+  // Use onAuthStateChange ONLY — it fires INITIAL_SESSION immediately (v2+),
+  // so calling getSession() manually would duplicate the work and race.
   useEffect(() => {
-    const loadUser = async () => {
-      // getSession() reads from localStorage synchronously — never makes a
-      // network call and is always reliable right after sign-in.
-      // getUser() does a server round-trip to re-validate the JWT which can
-      // transiently return null immediately after a redirect.
-      const { data: { session } } = await supabase.auth.getSession();
-      const u = session?.user ?? null;
-      setUser(u);
-      if (u) {
-        const { data: p } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", u.id)
-          .single();
-        setProfile(p);
-      }
-      setLoadingAuth(false);
-    };
-    loadUser();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        const u = session?.user ?? null;
+        setUser(u);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (!session?.user) {
-        setProfile(null);
-        setOrgs([]);
-        setOrg(null);
-      }
-    });
+        if (u) {
+          // Load profile (fire and forget — don't block auth state)
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", u.id)
+            .maybeSingle()
+            .then(({ data: p }) => setProfile(p ?? null));
+        } else {
+          setProfile(null);
+          setOrgs([]);
+          setOrg(null);
+        }
+
+        setLoadingAuth(false);
+      },
+    );
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

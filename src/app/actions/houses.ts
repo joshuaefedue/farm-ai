@@ -1,14 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-
-async function getUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { supabase: null, user: null };
-  return { supabase, user };
-}
+import { getAuthUser } from "@/lib/supabase/auth-helper";
 
 // ── createHouse ───────────────────────────────────────────────────────────────
 export async function createHouse(data: {
@@ -17,7 +10,7 @@ export async function createHouse(data: {
   type?: string;
   capacity?: number;
 }) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase.from("houses").insert({
@@ -38,7 +31,7 @@ export async function updateHouse(
   org_id: string,
   data: { name?: string; type?: string; capacity?: number },
 ) {
-  const { supabase, user } = await getUser();
+  const { supabase, user } = await getAuthUser();
   if (!supabase || !user) return { success: false, error: "Not authenticated" };
 
   const { error } = await supabase
